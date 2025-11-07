@@ -14,7 +14,7 @@ from train import TrainingConfig, train
 # Import Brandubh-specific classes
 from brandubh import Brandubh
 from network import BrandubhNet, MoveEncoder
-from agent import BrandubhAgent
+from agent import Agent as BrandubhAgent  # Use generic Agent
 
 
 # Custom type for temperature_threshold argument
