@@ -93,7 +93,8 @@ class TrainingConfig:
 
     # Evaluation
     eval_games = 20                   # Games for the gating match (new vs best network)
-    eval_win_rate = 0.55              # Score threshold to replace the best network
+    eval_min_elo = 70.0               # Elo gain over the best network needed to replace it
+                                      # (+70 = a 60 % score; with 128 games about 2 standard errors)
     eval_frequency = 5                # Evaluate every N iterations
     eval_mcts_sims_attacker = 100     # MCTS simulations for attacker in evaluation
     eval_mcts_sims_defender = 100     # MCTS simulations for defender in evaluation
@@ -169,7 +170,7 @@ SECTIONS: Dict[str, List[str]] = {
                  "dynamic_boost_max", "attacker_win_loss_boost", "draw_penalty_attacker",
                  "draw_penalty_defender"],
     "replay_buffer": ["replay_buffer_size", "min_buffer_size", "use_data_augmentation"],
-    "evaluation": ["eval_games", "eval_win_rate", "eval_frequency", "eval_mcts_sims_attacker",
+    "evaluation": ["eval_games", "eval_min_elo", "eval_frequency", "eval_mcts_sims_attacker",
                    "eval_mcts_sims_defender", "eval_c_puct", "eval_fpu_reduction", "eval_temperature",
                    "eval_temperature_mode", "eval_temperature_threshold", "eval_temperature_decay_moves",
                    "eval_vs_random_games", "eval_vs_random_frequency"],

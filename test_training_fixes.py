@@ -42,7 +42,7 @@ from tafl import ATTACKER, DEFENDER, EMPTY, ENDINGS, KING, RULESETS, Tafl, move_
 from tafl_network import TaflNet, move_index_tables
 from train import (augment_sample, symmetry_permutations, ReplayBuffer, SimulationBalancer,
                    TrainingConfig, generate_self_play_data, train_network, save_checkpoint,
-                   load_checkpoint, LOSS_KEYS)
+                   load_checkpoint, LOSS_KEYS, _play_self_play_game_worker, _stop_self_play)
 
 # Brandubh without the throne and with a king captured by two attackers everywhere: the positions
 # of the tests below were written for these rules
@@ -451,6 +451,28 @@ def test_self_play_targets():
     return True
 
 
+def test_self_play_stops_workers():
+    """With several workers, self-play must stop the games still running once it has enough games
+    (a worker returns None while _stop_self_play is set), close its pool and clear the event."""
+    config = TrainingConfig()
+    config.num_games_per_iteration, config.num_workers, config.temp_dir = 8, 4, None
+    config.num_mcts_sims_attacker = config.num_mcts_sims_defender = 2
+    config.network = NetworkConfig(channels=8, blocks=["res"])
+    original_compile = torch.compile
+    torch.compile = lambda model, **kwargs: model  # no compilation in this test (the workers inherit it)
+    try:
+        _stop_self_play.set()
+        assert _play_self_play_game_worker(None, None, None, *[None] * 12) is None
+        _stop_self_play.clear()
+        positions, games, stats = generate_self_play_data(Agent(TaflNet(config.network, 7)), config)
+        assert len(games) == 8 and not _stop_self_play.is_set()
+    finally:
+        torch.compile = original_compile
+        _stop_self_play.clear()
+    print("  self-play: the remaining games stop, the pool closes")
+    return True
+
+
 def test_low_temperature_and_eval_mode():
     """A very low temperature must not round all probabilities to zero (NaN before), and a search
     must put the network into eval mode (a fresh network used batch statistics and changed its
@@ -590,7 +612,7 @@ if __name__ == "__main__":
              test_temperature_and_time_limit, test_play_game_counts_last_ply_win,
              test_unarmed_king_does_not_capture, test_rollout_value_sign,
              test_load_compatible_keeps_player_plane, test_sim_balancer_band, test_replay_buffer_symmetries,
-             test_train_network_small_buffers, test_self_play_targets,
+             test_train_network_small_buffers, test_self_play_targets, test_self_play_stops_workers,
              test_low_temperature_and_eval_mode,
              test_larger_board_networks, test_legal_move_cache,
              test_checkpoint_save_and_resume_history, test_gui_reads_checkpoint_settings]

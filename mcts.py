@@ -132,6 +132,10 @@ class MCTSNode:
         fpu_value = self.mean_value + fpu_reduction
 
         for action, child in self.children.items():
+            # A prior of exactly 0 marks a move the evaluation excluded: a copy of a move under a
+            # board symmetry (analysis/opening_book.py). The softmax priors of training are never 0.
+            if child.prior == 0:
+                continue
             # Q value (child.mean_value is from the child's player, so negate for the player at this node)
             q_value = -child.mean_value if child.visit_count > 0 else fpu_value
             

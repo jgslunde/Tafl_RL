@@ -513,6 +513,11 @@ def evaluation_summary(games: List[dict], rules) -> dict:
 # SELF-PLAY
 # =============================================================================
 
+# Set by generate_self_play_data once it has enough games: the workers then stop their games and
+# return None. The forked pool workers inherit this event, so it needs no passing around.
+_stop_self_play = mp.Event()
+
+
 def _play_self_play_game_worker_wrapper(args):
     """
     Wrapper for _play_self_play_game_worker that unpacks tuple arguments.
@@ -554,8 +559,11 @@ def _play_self_play_game_worker(network_path, network_config, rules,
         search_discount: Discount factor per move during MCTS value backup (1.0 = no discount)
 
     Returns:
-        dict with game data and MCTS timing information
+        dict with game data and MCTS timing information, or None if _stop_self_play was set
+        before the game ended
     """
+    if _stop_self_play.is_set():
+        return None
     try:
         # Fresh seeds from the operating system for every game. Forked workers otherwise share one
         # random state, and a seed computed from game index + PID + time gave ~2-4 % of an
@@ -669,6 +677,8 @@ def _play_self_play_game_worker(network_path, network_config, rules,
 
         king_left_throne = False  # for temperature_mode "king"
         while not game.game_over:
+            if _stop_self_play.is_set():
+                return None
             current_player = game.current_player
 
             # Select MCTS based on current player
@@ -845,8 +855,8 @@ def generate_self_play_data(agent: Agent, config: TrainingConfig, pool=None, tem
     Args:
         agent: Agent to use for self-play
         config: Training configuration
-        pool: Optional multiprocessing pool to use (if None, creates temporary pool). It is terminated
-              at the end (the unfinished games are killed), so the caller must create a new one.
+        pool: Optional multiprocessing pool to use (if None, creates temporary pool). It is closed at
+              the end (its workers exit), so the caller must create a new one.
         temp_network_path: Path to temporary network file (avoids pickling large tensors)
         attacker_sims: Override for attacker simulation count (uses config value if None)
         defender_sims: Override for defender simulation count (uses config value if None)
@@ -902,32 +912,42 @@ def generate_self_play_data(agent: Agent, config: TrainingConfig, pool=None, tem
                        for game_idx in range(2 * config.num_games_per_iteration)]
 
         # Play games in parallel. imap_unordered with chunksize=1 hands out one game at a time, and once
-        # num_games_per_iteration games are done the games still running are killed. This keeps every
+        # num_games_per_iteration games are done the games still running are stopped. This keeps every
         # worker busy until the end (waiting for the last games instead leaves ~10-18 % of worker time
         # idle). The cost is a small bias against long games, since a long game started late is more
-        # likely to be killed: with ~4 games per worker about a third to a half of the draws are lost; the
-        # bias roughly halves with each doubling of the games per worker.
+        # likely to be stopped: with ~4 games per worker about a third to a half of the draws are lost;
+        # the bias roughly halves with each doubling of the games per worker.
+        # The games are stopped through _stop_self_play, not by killing the workers: a worker killed
+        # while sending its result leaves half a message in the result pipe, and the pool then waits
+        # forever for the rest. After the event is set, each worker returns None within one move, and
+        # the remaining tasks return None at once; all of them are read and thrown away. Then the pool
+        # is closed, not terminated: Pool.terminate() (Python 3.10) first takes the task queue lock,
+        # which an idle worker holds while it waits for a task, so it can block once the queue is empty.
         if config.num_workers > 1:
             run_pool = pool if pool is not None else mp.Pool(processes=config.num_workers, maxtasksperchild=10)
             game_results = []
             try:
                 for result in run_pool.imap_unordered(_play_self_play_game_worker_wrapper, worker_args, chunksize=1):
+                    if result is None or len(game_results) == config.num_games_per_iteration:
+                        continue
                     game_results.append(result)
                     # Progress indicator at 25%, 50%, and 75% completion
                     if len(game_results) in (config.num_games_per_iteration // 4, config.num_games_per_iteration // 2,
                                              3 * config.num_games_per_iteration // 4):
                         print(f"  Progress: {len(game_results)}/{config.num_games_per_iteration} games")
                     if len(game_results) == config.num_games_per_iteration:
-                        print(f"  Reached {config.num_games_per_iteration} games, terminating remaining workers...")
-                        break
+                        print(f"  Reached {config.num_games_per_iteration} games, stopping the remaining games...")
+                        _stop_self_play.set()
+                run_pool.close()
+                run_pool.join()
             except Exception as e:
                 print(f"\nError during self-play: {e}", file=sys.stderr, flush=True)
-                raise
-            finally:
-                # Kill the games still running. The pool cannot be used afterwards (the caller recreates it).
                 run_pool.terminate()
                 run_pool.join()
-                # Collect the dead workers' file descriptors before the next pool is created
+                raise
+            finally:
+                _stop_self_play.clear()
+                # Collect the exited workers' file descriptors before the next pool is created
                 import gc
                 gc.collect()
         else:
@@ -2098,7 +2118,7 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
     print("\n--- Evaluation ---")
     print(f"Eval frequency (network vs network): every {config.eval_frequency} iterations")
     print(f"Eval games (network vs network): {config.eval_games}")
-    print(f"Win rate threshold: {config.eval_win_rate:.1%}")
+    print(f"Elo gain needed to replace the best network: {config.eval_min_elo:+.0f}")
     print(f"Eval vs random frequency: every {config.eval_vs_random_frequency} iteration(s)")
     print(f"Eval vs random games: {config.eval_vs_random_games} per color ({config.eval_vs_random_games * 2} total)")
     print("Note: Will stop evaluating vs random once 100% win rate is achieved")
@@ -2336,7 +2356,7 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
                 'evaluation_params': {
                     'eval_frequency': config.eval_frequency,
                     'num_eval_games': config.eval_games,
-                    'eval_win_rate_threshold': config.eval_win_rate,
+                    'eval_min_elo': config.eval_min_elo,
                     'eval_vs_random_frequency': config.eval_vs_random_frequency,
                     'num_eval_vs_random_games': config.eval_vs_random_games,
                 },
@@ -2425,7 +2445,7 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
                                 for ending in config.rules.endings()}
             selfplay_time = time.time() - selfplay_start
 
-            # generate_self_play_data terminated the pool (so its workers hold no memory during training).
+            # generate_self_play_data closed the pool (so its workers hold no memory during training).
             # It is recreated at the start of the next iteration; evaluation uses its own pools.
             worker_pool = None
             
@@ -2561,8 +2581,9 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
                 elo_gain = calculate_elo_difference(score_rate)
                 training_history['elo_gain'].append(elo_gain)
                 
-                # Check if score meets threshold (draws count as half a win)
-                if score_rate >= config.eval_win_rate:
+                # Replace the best network if the Elo gain (from the score, draws counting as half
+                # a win) reaches the threshold
+                if elo_gain >= config.eval_min_elo:
                     print(f"New network scores {100*score_rate:.1f}% - updating best network!")
                     print(f"ELO gain: {elo_gain:+.1f} (new network vs previous best)")
                     # Update cumulative ELO by adding this gain

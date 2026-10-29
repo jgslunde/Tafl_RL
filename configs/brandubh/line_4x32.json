@@ -88,7 +88,7 @@
   },
   "evaluation": {
     "eval_games": 128,
-    "eval_win_rate": 0.7,
+    "eval_min_elo": 70.0,
     "eval_frequency": 4,
     "eval_mcts_sims_attacker": 800,
     "eval_mcts_sims_defender": 800,
