@@ -36,7 +36,7 @@ class TrainingConfig:
     name = ""                         # Free-text label of the run
 
     # Game
-    ruleset = "brandubh"              # A rule set name of tafl.RULESETS
+    ruleset = "brandubh_2"            # A rule set name of tafl.RULESETS
     max_game_length = 500             # Maximum plies before declaring a draw
 
     # Self-play

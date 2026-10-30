@@ -1,16 +1,16 @@
 {
-  "name": "brandubh: 4 line blocks x 32, conv policy, pooled value, constant planes",
+  "name": "brandubh_2: 4 blocks with a 3x3 conv before the row/column convs, x 32",
   "game": {
-    "ruleset": "brandubh",
+    "ruleset": "brandubh_2",
     "max_game_length": 100
   },
   "network": {
     "channels": 32,
     "blocks": [
-      "line",
-      "line",
-      "line",
-      "line"
+      "line3",
+      "line3",
+      "line3",
+      "line3"
     ],
     "global_pool": "none",
     "global_pool_channels": 16,
@@ -105,7 +105,7 @@
     "num_workers": null,
     "device": "cpu",
     "temp_dir": "/dev/shm/",
-    "checkpoint_dir": "checkpoints/brandubh/line_4x32",
+    "checkpoint_dir": "checkpoints/brandubh_2/line3_4x32",
     "save_frequency": 1,
     "log_frequency": 1,
     "verbose": true

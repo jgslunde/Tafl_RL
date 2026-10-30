@@ -41,7 +41,7 @@ def test_reach_planes_match_move_generator():
     every rule set (corners or not, throne or not), and the defender-region plane must equal the
     encirclement check."""
     rng = np.random.default_rng(0)
-    rule_sets = list(RULESETS.values()) + [replace(RULESETS["brandubh"], throne=False)]
+    rule_sets = list(RULESETS.values()) + [replace(RULESETS["brandubh_2"], throne=False)]
     for rules in rule_sets:
         n = rules.board_size
         for _ in range(20):
@@ -79,7 +79,7 @@ def test_reach_planes_match_move_generator():
 
 def test_feature_layout():
     """Plane names, counts and contents of every feature option."""
-    game = Tafl("brandubh")
+    game = Tafl("brandubh_2")
     full = FeatureSpec(history_length=2, constant_planes=True, mobility_planes=True, region_plane=True)
     names = full.plane_names()
     assert names == ["attackers_t0", "defenders_t0", "king_t0", "attackers_t1", "defenders_t1", "king_t1",
@@ -92,7 +92,7 @@ def test_feature_layout():
     assert state[7].all() and state[8].sum() == 4 and state[8, 0, 0] == 1 and state[9].sum() == 1 and state[9, 3, 3] == 1
     assert np.array_equal(state[10:13], reach_planes(game)) and np.array_equal(state[13], defender_region_plane(game))
     assert set(np.unique(state)) <= {0.0, 1.0}
-    no_throne = Tafl(replace(RULESETS["brandubh"], throne=False))
+    no_throne = Tafl(replace(RULESETS["brandubh_2"], throne=False))
     assert not constant_planes(no_throne)[2].any(), "no throne must give an empty throne plane"
     assert not constant_planes(Tafl("sami_tablut"))[1].any(), "edge goal must give an empty corner plane"
     # The default spec gives the classic 4 planes
@@ -103,7 +103,7 @@ def test_feature_layout():
 
 def test_policy_head_index_order():
     """Both policy heads must put move (from, direction, distance) where tafl.move_index puts it."""
-    for ruleset in ("brandubh", "sami_tablut", "copenhagen"):
+    for ruleset in ("brandubh_2", "sami_tablut", "copenhagen"):
         game = Tafl(ruleset)
         n = game.size
         head = ConvPolicyHead(8, n)
@@ -283,7 +283,7 @@ def test_run_configs():
             for section in ("game", "self_play", "training", "replay_buffer", "evaluation"):
                 assert data[section] == baseline_data[section], f"{ruleset}/{name}: {section} differs"
     assert found == 25
-    baseline = load_config(os.path.join(CONFIG_DIR, "brandubh", "baseline.json"))
+    baseline = load_config(os.path.join(CONFIG_DIR, "brandubh_2", "baseline.json"))
     assert (baseline.num_mcts_sims_attacker, baseline.batch_size, baseline.network.value_hidden,
             baseline.network.squeeze_excitation, baseline.rules.throne) == (1000, 256, 256, True, True)
     hnef = load_config(os.path.join(CONFIG_DIR, "copenhagen", "baseline.json"))
@@ -321,7 +321,7 @@ def test_training_end_to_end():
     torch.compile = lambda model, **kwargs: model  # no compilation in this test
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            config = load_config(os.path.join(CONFIG_DIR, "brandubh", "line_4x32_mobility.json"))
+            config = load_config(os.path.join(CONFIG_DIR, "brandubh_2", "line_4x32_mobility.json"))
             config = apply_overrides(config, [
                 "self_play.num_iterations=2", "self_play.num_games_per_iteration=2",
                 "self_play.num_mcts_sims_attacker=4", "self_play.num_mcts_sims_defender=4",
@@ -353,10 +353,10 @@ def test_training_end_to_end():
             path = os.path.join(tmp, "checkpoint_iter_2.pth")
             loaded, checkpoint = load_network(path)
             assert checkpoint["network_config"] == config.network.to_dict()
-            assert checkpoint["config"]["ruleset"] == "brandubh" and checkpoint["run_config"] == config.to_dict()
-            assert checkpoint["config"]["rules"] == RULESETS["brandubh"].to_dict()
+            assert checkpoint["config"]["ruleset"] == "brandubh_2" and checkpoint["run_config"] == config.to_dict()
+            assert checkpoint["config"]["rules"] == RULESETS["brandubh_2"].to_dict()
             assert isinstance(loaded, TaflNet) and loaded.feature_spec.mobility_planes
-            game = Tafl("brandubh")
+            game = Tafl("brandubh_2")
             x = torch.from_numpy(build_features(game, loaded.feature_spec))[None]
             with torch.no_grad():
                 assert torch.allclose(loaded(x)[0], network.eval()(x)[0])

@@ -1,30 +1,29 @@
 {
-  "name": "brandubh: 4 line blocks x 32 + reach planes from the move generator",
+  "name": "brandubh_2 baseline: 6x32 SE blocks, dense heads (the old train_brandubh.py defaults)",
   "game": {
-    "ruleset": "brandubh",
+    "ruleset": "brandubh_2",
     "max_game_length": 100
   },
   "network": {
     "channels": 32,
     "blocks": [
-      "line",
-      "line",
-      "line",
-      "line"
+      "res",
+      "res",
+      "res",
+      "res",
+      "res",
+      "res"
     ],
+    "squeeze_excitation": true,
     "global_pool": "none",
-    "global_pool_channels": 16,
-    "bottleneck": 0.5,
-    "tie_blocks": false,
-    "squeeze_excitation": false,
-    "policy_head": "conv",
-    "value_head": "pooled",
-    "value_hidden": 64,
-    "value_pool_channels": 16,
+    "policy_head": "dense",
+    "policy_dense_channels": 2,
+    "value_head": "dense",
+    "value_hidden": 256,
     "features": {
       "history_length": 1,
-      "constant_planes": true,
-      "mobility_planes": true,
+      "constant_planes": false,
+      "mobility_planes": false,
       "region_plane": false
     }
   },
@@ -105,7 +104,7 @@
     "num_workers": null,
     "device": "cpu",
     "temp_dir": "/dev/shm/",
-    "checkpoint_dir": "checkpoints/brandubh/line_4x32_mobility",
+    "checkpoint_dir": "checkpoints/brandubh_2/baseline",
     "save_frequency": 1,
     "log_frequency": 1,
     "verbose": true

@@ -253,4 +253,4 @@ def play_game(agent1, agent2, rules, display: bool = True,
 
 if __name__ == "__main__":
     # Demo: random-rollout MCTS (attackers) against random moves (defenders) under Brandubh 2
-    play_game(MCTSAgent(num_simulations=50), RandomAgent(), "brandubh", display=True)
+    play_game(MCTSAgent(num_simulations=50), RandomAgent(), "brandubh_2", display=True)

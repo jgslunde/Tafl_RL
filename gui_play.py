@@ -28,7 +28,7 @@ Examples:
     python gui_play.py --ruleset copenhagen
     python gui_play.py --checkpoint checkpoints/sami_tablut/line_6x48_gpool/checkpoint_iter_50.pth \\
         --ai-side attacker
-    python gui_play.py --checkpoint checkpoints/brandubh/line_4x32/best_model.pth \\
+    python gui_play.py --checkpoint checkpoints/brandubh_2/line_4x32/best_model.pth \\
         --simulations 200 --temperature 0.5 --temperature-mode decay --temperature-decay-moves 20
 """
 
@@ -105,7 +105,7 @@ class TaflGUI:
 
         # Rules: the named rule set, else the checkpoint's, else Brandubh 2
         trained_rules = get_rules(config['rules']) if config else None
-        self.rules = get_rules(ruleset or trained_rules or 'brandubh')
+        self.rules = get_rules(ruleset or trained_rules or 'brandubh_2')
         self.board_size = self.rules.board_size
         if trained_rules is not None and self.rules != trained_rules:
             print(f"Warning: the network was trained under {trained_rules.name}, not {self.rules.name}")
@@ -521,7 +521,7 @@ def main():
     parser.add_argument("--checkpoint", help="Checkpoint (.pth) for evaluation and AI moves; "
                                              "without it the board is for two human players")
     parser.add_argument("--ruleset", choices=sorted(RULESETS),
-                        help="Rule set (default: the checkpoint's, else brandubh)")
+                        help="Rule set (default: the checkpoint's, else brandubh_2)")
     parser.add_argument("--ai-side", choices=['none', 'attacker', 'defender', 'both'],
                         default='none',
                         help="Side(s) the AI moves for by itself (default: none; press A instead)")

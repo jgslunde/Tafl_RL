@@ -576,7 +576,7 @@ class RandomRolloutMCTS:
 if __name__ == "__main__":
     print("Testing MCTS with random rollouts...")
     
-    game = Tafl("brandubh")
+    game = Tafl("brandubh_2")
     mcts = RandomRolloutMCTS(num_simulations=50)
     
     print("Initial board:")

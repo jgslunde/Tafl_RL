@@ -182,10 +182,10 @@ the same few openings). The 11x11 baseline is new: the old script's settings had
 
 | Rule set | Config | Network | Parameters | Hypothesis |
 |---|---|---|---|---|
-| brandubh | `baseline` | 6x32 res + SE, dense heads, 4 planes | 249,808 | the network of the deprecated runs |
-| brandubh | `line_4x32` | 4 line blocks x 32, conv policy, pooled value, 7 planes | 45,892 | equal or better per node, 1.8x the nodes |
-| brandubh | `line_4x32_mobility` | as above + reach planes, 10 planes | 46,756 | faster learning; if large, 3 blocks are enough |
-| brandubh | `line3_4x32` | 4 line3 blocks x 32, 7 planes | 55,236 | tells whether diagonal shapes matter at 7x7 |
+| brandubh_2 | `baseline` | 6x32 res + SE, dense heads, 4 planes | 249,808 | the network of the deprecated runs |
+| brandubh_2 | `line_4x32` | 4 line blocks x 32, conv policy, pooled value, 7 planes | 45,892 | equal or better per node, 1.8x the nodes |
+| brandubh_2 | `line_4x32_mobility` | as above + reach planes, 10 planes | 46,756 | faster learning; if large, 3 blocks are enough |
+| brandubh_2 | `line3_4x32` | 4 line3 blocks x 32, 7 planes | 55,236 | tells whether diagonal shapes matter at 7x7 |
 | sami_tablut | `baseline` | 6x48 res, dense heads, 4 planes | 691,488 | the network of the deprecated runs |
 | sami_tablut | `line_6x48_gpool` | 6 line blocks x 48, global pool, 7 planes | 155,412 | 1.3x faster at equal depth |
 | sami_tablut | `line3_6x48_gpool` | 6 line3 blocks x 48, global pool, 7 planes | 186,804 | my guess for the eventual winner at 9x9 |
@@ -218,10 +218,10 @@ about a third.
 
 ```bash
 ./run.sh copenhagen line_10x64_gpool                  # on a cluster node, inside screen
-python run_training.py configs/brandubh/line_4x32.json
+python run_training.py configs/brandubh_2/line_4x32.json
 python run_training.py configs/sami_tablut/line_6x48_gpool.json --num-workers 64
-python run_training.py configs/brandubh/baseline.json --show        # print the resolved config
-python run_training.py configs/brandubh/baseline.json --resume checkpoints/brandubh/baseline/checkpoint_iter_40.pth
+python run_training.py configs/brandubh_2/baseline.json --show        # print the resolved config
+python run_training.py configs/brandubh_2/baseline.json --resume checkpoints/brandubh_2/baseline/checkpoint_iter_40.pth
 ```
 
 The resolved config is written to `<checkpoint_dir>/run_config.json` and stored in every

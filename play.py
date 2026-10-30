@@ -9,7 +9,7 @@ Usage:
     python play.py <checkpoint1> <checkpoint2> [options]
 
 Example:
-    python play.py checkpoints/brandubh/baseline/best_model.pth checkpoints/brandubh/baseline/checkpoint_iter_5.pth
+    python play.py checkpoints/brandubh_2/baseline/best_model.pth checkpoints/brandubh_2/baseline/checkpoint_iter_5.pth
     python play.py model1.pth model2.pth --simulations 200
     python play.py model1.pth model2.pth --ruleset fetlar
     python play.py model1.pth model2.pth --num-games 10 --swap-colors  # 20 games total

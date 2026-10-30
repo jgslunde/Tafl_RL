@@ -50,7 +50,7 @@ def test_setups():
 
 def test_movement():
     """Only the king may stop on the throne and the corners; every piece passes over the empty throne."""
-    game = position("brandubh", {(3, 0): A, (2, 3): K, (0, 4): A}, 0)
+    game = position("brandubh_2", {(3, 0): A, (2, 3): K, (0, 4): A}, 0)
     moves = game.get_legal_moves()
     assert (3, 0, 3, 4) in moves and (3, 0, 3, 3) not in moves, "the throne must be passable, not a stop"
     assert (0, 4, 0, 6) not in moves and (0, 4, 0, 5) in moves, "only the king may stop on a corner"
@@ -72,8 +72,8 @@ def test_movement():
 def test_king_goal():
     """The king wins on a corner in corner-goal sets (not on the edge), on any edge square in
     edge-goal sets."""
-    assert after("brandubh", {(1, 1): K, (5, 5): A}, 1, (1, 1, 0, 1)).game_over is False
-    assert after("brandubh", {(0, 1): K, (5, 5): A}, 1, (0, 1, 0, 0)).winner == 1
+    assert after("brandubh_2", {(1, 1): K, (5, 5): A}, 1, (1, 1, 0, 1)).game_over is False
+    assert after("brandubh_2", {(0, 1): K, (5, 5): A}, 1, (0, 1, 0, 0)).winner == 1
     assert after("sami_tablut", {(2, 2): K, (6, 6): A}, 1, (2, 2, 0, 2)).winner == 1
     print("  king goal: corner or edge")
     return True
@@ -84,11 +84,11 @@ def test_king_capture():
     cases = [
         # Brandubh 2: two sides, but four on the throne; the throne never counts against the king,
         # a corner does
-        ("brandubh", {(3, 3): K, (3, 2): A, (6, 4): A}, (6, 4, 3, 4), False),
-        ("brandubh", {(3, 3): K, (3, 2): A, (2, 3): A, (4, 3): A, (6, 4): A}, (6, 4, 3, 4), True),
-        ("brandubh", {(2, 3): K, (2, 2): A, (6, 4): A}, (6, 4, 2, 4), True),
-        ("brandubh", {(2, 3): K, (1, 0): A}, (1, 0, 1, 3), False),
-        ("brandubh", {(0, 1): K, (4, 2): A}, (4, 2, 0, 2), True),
+        ("brandubh_2", {(3, 3): K, (3, 2): A, (6, 4): A}, (6, 4, 3, 4), False),
+        ("brandubh_2", {(3, 3): K, (3, 2): A, (2, 3): A, (4, 3): A, (6, 4): A}, (6, 4, 3, 4), True),
+        ("brandubh_2", {(2, 3): K, (2, 2): A, (6, 4): A}, (6, 4, 2, 4), True),
+        ("brandubh_2", {(2, 3): K, (1, 0): A}, (1, 0, 1, 3), False),
+        ("brandubh_2", {(0, 1): K, (4, 2): A}, (4, 2, 0, 2), True),
         # Brandubh 1: as Brandubh 2, but next to the throne the three other sides
         ("brandubh_1", {(3, 3): K, (3, 2): A, (6, 4): A}, (6, 4, 3, 4), False),
         ("brandubh_1", {(2, 3): K, (2, 2): A, (6, 4): A}, (6, 4, 2, 4), False),
@@ -126,11 +126,11 @@ def test_hostile_squares():
     """The empty throne is hostile to defenders and attackers, the occupied throne not to defenders;
     the corners are hostile to all; without throne hostility nothing is captured against it."""
     defender_vs_throne = ({(2, 3): D, (1, 0): A, (0, 1): K}, 0, (1, 0, 1, 3))
-    game = after("brandubh", *defender_vs_throne)
+    game = after("brandubh_2", *defender_vs_throne)
     assert game.board[2, 3] == EMPTY, "the empty throne must capture a defender"
-    game = after("brandubh", {(2, 3): D, (1, 0): A, (3, 3): K}, 0, (1, 0, 1, 3))
+    game = after("brandubh_2", {(2, 3): D, (1, 0): A, (3, 3): K}, 0, (1, 0, 1, 3))
     assert game.board[2, 3] == D, "a throne with the king on it is not hostile to defenders"
-    game = after("brandubh", {(3, 2): A, (6, 1): D, (0, 1): K, (5, 5): A}, 1, (6, 1, 3, 1))
+    game = after("brandubh_2", {(3, 2): A, (6, 1): D, (0, 1): K, (5, 5): A}, 1, (6, 1, 3, 1))
     assert game.board[3, 2] == EMPTY, "the empty throne must capture an attacker"
     game = after("walker_brandub", *defender_vs_throne)
     assert game.board[2, 3] == D, "a throne that is not hostile captures nothing"
@@ -234,8 +234,8 @@ def test_end_reasons():
     ring = {(5, 5): K, (3, 5): A, (7, 5): A, (5, 3): A, (5, 7): A, (4, 4): A, (4, 6): A, (6, 4): A,
             (6, 9): A}
     cases = [
-        (after("brandubh", {(0, 1): K, (5, 5): A}, 1, (0, 1, 0, 0)), 1, "king_escaped"),
-        (after("brandubh", {(2, 2): K, (2, 1): A, (2, 5): A}, 0, (2, 5, 2, 3)), 0, "king_captured"),
+        (after("brandubh_2", {(0, 1): K, (5, 5): A}, 1, (0, 1, 0, 0)), 1, "king_escaped"),
+        (after("brandubh_2", {(2, 2): K, (2, 1): A, (2, 5): A}, 0, (2, 5, 2, 3)), 0, "king_captured"),
         (after("copenhagen", fort, 1, (10, 9, 10, 7)), 1, "exit_fort"),
         (after("copenhagen", ring, 0, (6, 9, 6, 6)), 0, "encircled"),
         # The king alone on the edge, walled in: no capture on the edge, but no legal move either

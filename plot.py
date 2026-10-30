@@ -28,8 +28,8 @@ from the end of the previous run.
 
 Usage: python plot.py <training_history.json | output.txt> [more files of continuing runs ...]
 
-Example: python plot.py checkpoints/brandubh/baseline/training_history.json
-Example: python plot.py checkpoints/brandubh/baseline/output.txt
+Example: python plot.py checkpoints/brandubh_2/baseline/training_history.json
+Example: python plot.py checkpoints/brandubh_2/baseline/output.txt
 """
 
 import json

@@ -19,7 +19,7 @@ fair. The number of games is in brackets.
 
 | Name | Card | Board | First | King wins | King captured | Throne | Extra rules | Repetition | Defender wins | Configs |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `brandubh` | C1 Brandubh 2 | 7x7 | attackers | corner | two; four on the throne | hostile | encirclement | 3rd: attackers win | 62 % (2,318) | `configs/brandubh/` |
+| `brandubh_2` | C1 Brandubh 2 | 7x7 | attackers | corner | two; four on the throne | hostile | encirclement | 3rd: attackers win | 62 % (2,318) | `configs/brandubh_2/` |
 | `brandubh_1` | D, note (d) | 7x7 | attackers | corner | two; four on the throne, three beside it | hostile | encirclement | 3rd: attackers win | 57 % (926) | `configs/brandubh_1/` |
 | `walker_brandub` | C2 Walker's Brandub | 7x7 | attackers | corner | two everywhere | not hostile | encirclement | 3rd: attackers win | 55 % (468) | `configs/walker_brandub/` |
 | `brandubh_2_5w` | C3 Brandubh 2.5W | 7x7 | defenders | corner | two; four on the throne | hostile, only the king may pass | encirclement | 5th: attackers win | 59 % (354) | `configs/brandubh_2_5w/` |

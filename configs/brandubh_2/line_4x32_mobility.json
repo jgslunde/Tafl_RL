@@ -1,35 +1,30 @@
 {
-  "name": "brandubh baseline: 6x32 SE blocks, dense heads (the old train_brandubh.py defaults)",
+  "name": "brandubh_2: 4 line blocks x 32 + reach planes from the move generator",
   "game": {
-    "ruleset": "brandubh",
+    "ruleset": "brandubh_2",
     "max_game_length": 100
   },
   "network": {
     "channels": 32,
     "blocks": [
-      "res",
-      "res",
-      "res",
-      "res",
-      "res",
-      "res"
+      "line",
+      "line",
+      "line",
+      "line"
     ],
-    "bottleneck": 0.5,
-    "squeeze_excitation": true,
     "global_pool": "none",
     "global_pool_channels": 16,
+    "bottleneck": 0.5,
     "tie_blocks": false,
-    "attention_heads": 4,
-    "policy_head": "dense",
-    "policy_dense_channels": 2,
-    "policy_bilinear_dim": 32,
-    "value_head": "dense",
-    "value_hidden": 256,
+    "squeeze_excitation": false,
+    "policy_head": "conv",
+    "value_head": "pooled",
+    "value_hidden": 64,
     "value_pool_channels": 16,
     "features": {
       "history_length": 1,
-      "constant_planes": false,
-      "mobility_planes": false,
+      "constant_planes": true,
+      "mobility_planes": true,
       "region_plane": false
     }
   },
@@ -93,7 +88,7 @@
   },
   "evaluation": {
     "eval_games": 128,
-    "eval_win_rate": 0.7,
+    "eval_min_elo": 70.0,
     "eval_frequency": 4,
     "eval_mcts_sims_attacker": 800,
     "eval_mcts_sims_defender": 800,
@@ -107,10 +102,10 @@
     "eval_vs_random_frequency": 9999999
   },
   "system": {
-    "num_workers": 64,
+    "num_workers": null,
     "device": "cpu",
     "temp_dir": "/dev/shm/",
-    "checkpoint_dir": "checkpoints/brandubh/baseline",
+    "checkpoint_dir": "checkpoints/brandubh_2/line_4x32_mobility",
     "save_frequency": 1,
     "log_frequency": 1,
     "verbose": true

@@ -211,8 +211,8 @@ BELL_SETUP = ("....AAA....",
               "....AAA....")
 
 # The variant cards C1-C9 of the reference, plus Brandubh 1 (its part D, note d)
-BRANDUBH = Rules(
-    "brandubh", "Brandubh 2 (World Tafl Federation, 2020), the most played 7x7 rules",
+BRANDUBH_2 = Rules(
+    "brandubh_2", "Brandubh 2 (World Tafl Federation, 2020), the most played 7x7 rules",
     BRANDUBH_SETUP, first_player="attackers", king_goal="corner", king_capture="weak_throne",
     king_armed=True, throne=True, throne_hostile=True, encirclement=True, shieldwall=False,
     exit_fort=False, repetition="defenders_lose")
@@ -228,13 +228,13 @@ COPENHAGEN = Rules(
     exit_fort=True, repetition="defenders_lose")
 
 RULESETS = {rules.name: rules for rules in [
-    BRANDUBH,
-    replace(BRANDUBH, name="brandubh_1", king_capture="weak_near_throne",
+    BRANDUBH_2,
+    replace(BRANDUBH_2, name="brandubh_1", king_capture="weak_near_throne",
             description="Brandubh 1 7x7 (aagenielsen.dk, 2015-2020): Brandubh 2, but the king "
                         "beside the throne is captured by three"),
-    replace(BRANDUBH, name="walker_brandub", king_capture="weak", throne_hostile=False,
+    replace(BRANDUBH_2, name="walker_brandub", king_capture="weak", throne_hostile=False,
             description="Walker's Brandub 7x7 (2011), as played on aagenielsen.dk"),
-    replace(BRANDUBH, name="brandubh_2_5w", first_player="defenders", throne_passable=False,
+    replace(BRANDUBH_2, name="brandubh_2_5w", first_player="defenders", throne_passable=False,
             repetition_count=5, description="Brandubh 2.5W 7x7 (draft of February 2026; start "
                                             "position assumed to be that of Brandubh 2)"),
     SAMI_TABLUT,

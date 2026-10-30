@@ -4,7 +4,7 @@ Plot ELO ratings from evaluation results.
 
 Usage:
     python plot_elo.py <results_json>
-    python plot_elo.py checkpoints/brandubh/line_4x32/elo_evaluation_results.json
+    python plot_elo.py checkpoints/brandubh_2/line_4x32/elo_evaluation_results.json
 """
 
 import argparse

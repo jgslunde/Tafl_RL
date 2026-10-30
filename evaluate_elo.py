@@ -11,9 +11,9 @@ Usage:
 All games are played under the rule set and draw limit the checkpoints were trained with.
 
 Example:
-    python evaluate_elo.py checkpoints/brandubh/line_4x32/ --num-games 20 --checkpoint-distance 5
+    python evaluate_elo.py checkpoints/brandubh_2/line_4x32/ --num-games 20 --checkpoint-distance 5
     python evaluate_elo.py checkpoints/copenhagen/line_10x64_gpool/ --simulations 400
-    python evaluate_elo.py checkpoints/brandubh/line_4x32/ --num-games 10 --max-checkpoints 20
+    python evaluate_elo.py checkpoints/brandubh_2/line_4x32/ --num-games 10 --max-checkpoints 20
 """
 
 import argparse

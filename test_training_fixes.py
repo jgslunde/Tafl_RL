@@ -46,7 +46,7 @@ from train import (augment_sample, symmetry_permutations, ReplayBuffer, Simulati
 
 # Brandubh without the throne and with a king captured by two attackers everywhere: the positions
 # of the tests below were written for these rules
-SIMPLE_7X7 = replace(RULESETS["brandubh"], name="simple_7x7", throne=False, king_capture="weak",
+SIMPLE_7X7 = replace(RULESETS["brandubh_2"], name="simple_7x7", throne=False, king_capture="weak",
                      encirclement=False)
 
 
@@ -82,7 +82,7 @@ def set_position(game, pieces: dict, player: int):
 def test_augmentation_consistent():
     """Each of the 8 symmetries must put policy mass only on moves that are legal-looking on its board."""
     rng = np.random.default_rng(0)
-    for rules in (RULESETS["brandubh"], RULESETS["sami_tablut"]):
+    for rules in (RULESETS["brandubh_2"], RULESETS["sami_tablut"]):
         n = rules.board_size
         to_square, _ = move_index_tables(n)
         for _ in range(20):
@@ -109,7 +109,7 @@ def test_from_game_matches_tracked_history():
     """from_game must give the same planes as pushing piece planes after every move (as in self-play)."""
     rng = np.random.default_rng(1)
     for history_length in (1, 4):
-        game = Tafl("brandubh")
+        game = Tafl("brandubh_2")
         tracked = StateHistory(history_length=history_length, board_size=7)
         tracked.push(game.get_piece_planes())
         for _ in range(30):
@@ -132,7 +132,7 @@ def test_evaluate_matches_masked_softmax():
     network = small_network(7).eval()
     mcts = MCTS(network, num_simulations=10)
     for _ in range(10):
-        game = random_position("brandubh", rng)
+        game = random_position("brandubh_2", rng)
         legal = game.get_legal_moves()
         probs, value = mcts._evaluate(game, legal)
         with torch.inference_mode():
@@ -169,7 +169,7 @@ def test_play_game_uses_rules():
 
 def test_fpu_uses_parent_value():
     """An unvisited child must be valued at parent value + fpu_reduction (the sign used to be flipped)."""
-    game = Tafl("brandubh")
+    game = Tafl("brandubh_2")
     for parent_q, expect_unvisited in [(+0.8, True), (-0.8, False)]:
         root = MCTSNode(game.clone())
         root.expand(np.ones(len(game.get_legal_moves())))
@@ -201,7 +201,7 @@ def test_search_input_matches_training_state():
     torch.manual_seed(0)
     rng = np.random.default_rng(3)
     history_length = 3
-    game = Tafl("brandubh")
+    game = Tafl("brandubh_2")
     history = StateHistory(history_length, 7)
     history.push(game.get_piece_planes())
     for _ in range(3):  # track the history as self-play does
@@ -223,7 +223,7 @@ def test_search_input_matches_training_state():
 def test_single_simulation_policy_is_finite():
     """With one simulation no child is visited; the visit distribution must fall back to the priors."""
     mcts = MCTS(small_network(7).eval(), num_simulations=1)
-    probs = np.array(list(mcts.search(Tafl("brandubh")).values()))
+    probs = np.array(list(mcts.search(Tafl("brandubh_2")).values()))
     assert np.all(np.isfinite(probs)) and np.isclose(probs.sum(), 1.0)
     print("  one simulation: finite policy")
     return True
@@ -231,7 +231,7 @@ def test_single_simulation_policy_is_finite():
 
 def test_temperature_and_time_limit():
     """A low temperature must almost always pick the most visited move (it used to act like 1.0)."""
-    game = Tafl("brandubh")
+    game = Tafl("brandubh_2")
     a, b = game.get_legal_moves()[:2]
     agent = Agent(small_network(7).eval(), num_simulations=2)
     agent.mcts.search = lambda g, state_history=None, time_limit=None: {a: 0.9, b: 0.1}
@@ -292,7 +292,7 @@ def test_unarmed_king_does_not_capture():
 
 def test_rollout_value_sign():
     """The defender's only legal move wins, so a rollout from its turn must return +1."""
-    game = set_position(Tafl("brandubh"), {(0, 1): KING, (0, 2): ATTACKER, (1, 1): ATTACKER}, 1)
+    game = set_position(Tafl("brandubh_2"), {(0, 1): KING, (0, 2): ATTACKER, (1, 1): ATTACKER}, 1)
     assert game.get_legal_moves() == [(0, 1, 0, 0)]
     assert RandomRolloutMCTS()._rollout(game) == 1.0
     print("  random rollout: value for the player to move")
@@ -364,7 +364,7 @@ def test_replay_buffer_symmetries():
     """The symmetry tables used when a batch is drawn must give the boards and policies of
     augment_sample, and the ring buffer must keep the newest positions."""
     rng = np.random.default_rng(5)
-    for rules in (RULESETS["brandubh"], RULESETS["sami_tablut"]):
+    for rules in (RULESETS["brandubh_2"], RULESETS["sami_tablut"]):
         n = rules.board_size
         cell_perm, move_perm = symmetry_permutations(n)
         for _ in range(5):
@@ -389,7 +389,7 @@ def test_train_network_small_buffers():
     set allowed (division by zero before). Draws and unequal loss boosts must work."""
     config = TrainingConfig()
     config.batch_size, config.batches_per_epoch, config.num_epochs = 4, 2, 1
-    game = Tafl("brandubh")
+    game = Tafl("brandubh_2")
     policy = np.zeros(1176, dtype=np.float32)
     policy[move_index(game.get_legal_moves()[0], 7)] = 1.0
     original_compile = torch.compile
@@ -477,7 +477,7 @@ def test_low_temperature_and_eval_mode():
     """A very low temperature must not round all probabilities to zero (NaN before), and a search
     must put the network into eval mode (a fresh network used batch statistics and changed its
     BatchNorm)."""
-    game = Tafl("brandubh")
+    game = Tafl("brandubh_2")
     moves = game.get_legal_moves()[:3]
     agent = Agent(small_network(7), num_simulations=2)
     agent.mcts.search = lambda g, **kwargs: dict(zip(moves, [0.3, 0.3, 0.4]))
@@ -517,7 +517,7 @@ def test_larger_board_networks():
 def test_legal_move_cache():
     """Cached legal moves must equal freshly generated ones: after moves, in clones, after edits."""
     rng = np.random.default_rng(6)
-    for rules in (RULESETS["brandubh"], RULESETS["sami_tablut"]):
+    for rules in (RULESETS["brandubh_2"], RULESETS["sami_tablut"]):
         for _ in range(10):
             game = Tafl(rules)
             for _ in range(40):

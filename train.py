@@ -2695,5 +2695,5 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
 # =============================================================================
 
 # Runs are started with a JSON config:
-#   python run_training.py configs/brandubh/baseline.json [--set section.key=value ...]
+#   python run_training.py configs/brandubh_2/baseline.json [--set section.key=value ...]
 # See run_training.py, run_config.py and the configs/ directory.

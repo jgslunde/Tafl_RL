@@ -12,7 +12,7 @@ Usage:
     python convert_to_onnx.py <checkpoint_path> [--output OUTPUT] [--opset N] [--no-verify]
 
 Examples:
-    python convert_to_onnx.py checkpoints/brandubh/line_4x32/best_model.pth
+    python convert_to_onnx.py checkpoints/brandubh_2/line_4x32/best_model.pth
     python convert_to_onnx.py checkpoints/copenhagen/line_10x64_gpool/best_model.pth --output model.onnx
 """
 
