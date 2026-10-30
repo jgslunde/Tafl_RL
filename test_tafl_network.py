@@ -282,7 +282,7 @@ def test_run_configs():
             assert data["system"]["num_workers"] is None, f"{name}: num_workers must be null"
             for section in ("game", "self_play", "training", "replay_buffer", "evaluation"):
                 assert data[section] == baseline_data[section], f"{ruleset}/{name}: {section} differs"
-    assert found == 13
+    assert found == 25
     baseline = load_config(os.path.join(CONFIG_DIR, "brandubh", "baseline.json"))
     assert (baseline.num_mcts_sims_attacker, baseline.batch_size, baseline.network.value_hidden,
             baseline.network.squeeze_excitation, baseline.rules.throne) == (1000, 256, 256, True, True)

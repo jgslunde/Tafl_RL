@@ -89,6 +89,11 @@ def test_king_capture():
         ("brandubh", {(2, 3): K, (2, 2): A, (6, 4): A}, (6, 4, 2, 4), True),
         ("brandubh", {(2, 3): K, (1, 0): A}, (1, 0, 1, 3), False),
         ("brandubh", {(0, 1): K, (4, 2): A}, (4, 2, 0, 2), True),
+        # Brandubh 1: as Brandubh 2, but next to the throne the three other sides
+        ("brandubh_1", {(3, 3): K, (3, 2): A, (6, 4): A}, (6, 4, 3, 4), False),
+        ("brandubh_1", {(2, 3): K, (2, 2): A, (6, 4): A}, (6, 4, 2, 4), False),
+        ("brandubh_1", {(2, 3): K, (2, 2): A, (1, 3): A, (6, 4): A}, (6, 4, 2, 4), True),
+        ("brandubh_1", {(1, 1): K, (1, 0): A, (6, 2): A}, (6, 2, 1, 2), True),
         # Walker's Brandub: two sides also on the throne
         ("walker_brandub", {(3, 3): K, (3, 2): A, (6, 4): A}, (6, 4, 3, 4), True),
         # Sami Tablut: next to the throne the three other sides, elsewhere two

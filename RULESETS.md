@@ -7,9 +7,10 @@ checkpoint also stores the complete rules (`config['rules']`), and `convert_to_o
 into the model's `.json` file.
 
 The named sets are the nine most-played variants, as defined card by card in the implementation
-reference of the tafl overview (October 2026, parts A-C). The historical 11x11 card has three
-setups, so there are eleven names. The engine has more switches (see `Rules` in `tafl.py`), which
-tests use to build other combinations, but runs must name a rule set.
+reference of the tafl overview (October 2026, parts A-C), plus Brandubh 1, which has no card and is
+defined in note (d) of part D. The historical 11x11 card has three setups, so there are twelve
+names. The engine has more switches (see `Rules` in `tafl.py`), which tests use to build other
+combinations, but runs must name a rule set.
 
 ## The named rule sets
 
@@ -19,8 +20,9 @@ fair. The number of games is in brackets.
 | Name | Card | Board | First | King wins | King captured | Throne | Extra rules | Repetition | Defender wins | Configs |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `brandubh` | C1 Brandubh 2 | 7x7 | attackers | corner | two; four on the throne | hostile | encirclement | 3rd: attackers win | 62 % (2,318) | `configs/brandubh/` |
-| `walker_brandub` | C2 Walker's Brandub | 7x7 | attackers | corner | two everywhere | not hostile | encirclement | 3rd: attackers win | 55 % (468) | |
-| `brandubh_2_5w` | C3 Brandubh 2.5W | 7x7 | defenders | corner | two; four on the throne | hostile, only the king may pass | encirclement | 5th: attackers win | 59 % (354) | |
+| `brandubh_1` | D, note (d) | 7x7 | attackers | corner | two; four on the throne, three beside it | hostile | encirclement | 3rd: attackers win | 57 % (926) | `configs/brandubh_1/` |
+| `walker_brandub` | C2 Walker's Brandub | 7x7 | attackers | corner | two everywhere | not hostile | encirclement | 3rd: attackers win | 55 % (468) | `configs/walker_brandub/` |
+| `brandubh_2_5w` | C3 Brandubh 2.5W | 7x7 | defenders | corner | two; four on the throne | hostile, only the king may pass | encirclement | 5th: attackers win | 59 % (354) | `configs/brandubh_2_5w/` |
 | `sami_tablut` | C4 Sami Tablut | 9x9 | defenders | edge | two; four on the throne, three beside it | hostile | encirclement | 3rd: attackers win | 49 % (966) | `configs/sami_tablut/` |
 | `sea_battle_9x9` | C5 Sea Battle | 9x9 | attackers | edge | four; unarmed king | none | encirclement | 3rd: attackers win | 51 % (352) | |
 | `market_hnefatafl` | C6 Market Hnefatafl | 9x9 | defenders | edge | two everywhere | none | none | 3rd: attackers win | 46 % (222) | |

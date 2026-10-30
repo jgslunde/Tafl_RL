@@ -5,8 +5,8 @@ A rule set (Rules) fixes everything that differs between the common variants: th
 position, who moves first, where the king escapes to, how he is captured, the throne, and the
 extra rules of some sets (encirclement, shieldwall, exit fort, what an endless repetition means).
 Training runs use only the named sets in RULESETS: the nine most-played variants, as defined in the
-implementation reference of the tafl overview (October 2026). RULESETS.md lists them, their
-sources and how balanced they are in human play.
+implementation reference of the tafl overview (October 2026), plus Brandubh 1. RULESETS.md lists
+them, their sources and how balanced they are in human play.
 
 Board: an NxN int8 array with EMPTY 0, ATTACKER 1, DEFENDER 2, KING 3. Players: 0 attackers,
 1 defenders. A move is (from_row, from_col, to_row, to_col).
@@ -210,7 +210,7 @@ BELL_SETUP = ("....AAA....",
               "....A.A....",
               "....AAA....")
 
-# The variant cards C1-C9 of the reference
+# The variant cards C1-C9 of the reference, plus Brandubh 1 (its part D, note d)
 BRANDUBH = Rules(
     "brandubh", "Brandubh 2 (World Tafl Federation, 2020), the most played 7x7 rules",
     BRANDUBH_SETUP, first_player="attackers", king_goal="corner", king_capture="weak_throne",
@@ -229,6 +229,9 @@ COPENHAGEN = Rules(
 
 RULESETS = {rules.name: rules for rules in [
     BRANDUBH,
+    replace(BRANDUBH, name="brandubh_1", king_capture="weak_near_throne",
+            description="Brandubh 1 7x7 (aagenielsen.dk, 2015-2020): Brandubh 2, but the king "
+                        "beside the throne is captured by three"),
     replace(BRANDUBH, name="walker_brandub", king_capture="weak", throne_hostile=False,
             description="Walker's Brandub 7x7 (2011), as played on aagenielsen.dk"),
     replace(BRANDUBH, name="brandubh_2_5w", first_player="defenders", throne_passable=False,
