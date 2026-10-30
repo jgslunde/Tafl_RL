@@ -1,4 +1,13 @@
+# Use Python 3.13: 3.14 and later no longer start pool workers with fork by default, which the
+# self-play stop signal in train.py needs, and onnxruntime or pygame have no wheels for them yet.
+# The CPU build of torch: training runs on the CPU, and the default build adds about 5 GB for GPUs.
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.0.0
 numpy>=1.24.0
 scipy>=1.10.0
 setproctitle>=1.3
+matplotlib>=3.7
+onnx>=1.16
+onnxruntime>=1.18
+onnxscript>=0.5
+pygame>=2.5
