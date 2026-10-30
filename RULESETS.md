@@ -46,9 +46,8 @@ a draw after `max_game_length` plies; the published rules have no such limit.
 - Shieldwall (B1): `_shieldwall_captures`, including the **[Ours]** choice that the king counts as
   a front piece.
 - Exit fort (B2): `_king_in_exit_fort`, the reference's safe-set test, after every defenders' move.
-- The cards' **[Ours]** choices are all taken as written. Two of them deserve a check:
-  - the start position of Brandubh 2.5W, assumed to be that of Brandubh 2;
-  - Walker's Brandub with encirclement.
+- The cards' **[Ours]** choices are all taken as written. One of them deserves a check: Walker's
+  Brandub with encirclement.
 - Not implemented: draws by agreement (A10) and two-game match scoring (A11). Neither matters for
   self-play.
 - A finished game records how it ended in `Tafl.end_reason`, one of `tafl.ENDINGS`:
@@ -58,7 +57,7 @@ a draw after `max_game_length` plies; the published rules have no such limit.
   self-play and evaluation games, and appends every game's ending and final board to
   `checkpoints/<rule set>/<run>/games.jsonl`.
 
-## Changes since the first version of the rule sets (commit 2c6f2f5)
+## Changes since the first version of the rule sets (commit ff7fb73)
 
 - Copenhagen:
   - the exit fort test is now the reference's B2 test, which also accepts walls protected by

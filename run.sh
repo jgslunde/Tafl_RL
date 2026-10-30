@@ -19,7 +19,7 @@ TRAIN_THREADS=64
 ruleset=$1
 name=$2
 shift 2
-cd /mn/stornext/u3/jonassl/Games/Hnefatafl_RL
+cd "$(dirname "$0")"
 run_dir=checkpoints/$ruleset/$name
 mkdir -p $run_dir
 OMP_NUM_THREADS=$TRAIN_THREADS MKL_NUM_THREADS=$TRAIN_THREADS exec .venv/bin/python -u run_training.py \

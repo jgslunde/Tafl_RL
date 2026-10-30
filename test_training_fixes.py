@@ -569,6 +569,7 @@ def test_gui_reads_checkpoint_settings():
     import os
     import tempfile
     os.environ.setdefault('SDL_VIDEODRIVER', 'dummy')  # no window needed
+    os.environ.setdefault('SDL_AUDIODRIVER', 'dummy')  # audio can hang on a forwarded display
     from gui_play import TaflGUI
     config = TrainingConfig()
     config.checkpoint_dir = tempfile.mkdtemp()

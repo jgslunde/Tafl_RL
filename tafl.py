@@ -235,8 +235,7 @@ RULESETS = {rules.name: rules for rules in [
     replace(BRANDUBH_2, name="walker_brandub", king_capture="weak", throne_hostile=False,
             description="Walker's Brandub 7x7 (2011), as played on aagenielsen.dk"),
     replace(BRANDUBH_2, name="brandubh_2_5w", first_player="defenders", throne_passable=False,
-            repetition_count=5, description="Brandubh 2.5W 7x7 (draft of February 2026; start "
-                                            "position assumed to be that of Brandubh 2)"),
+            repetition_count=5, description="Brandubh 2.5W 7x7 (draft of February 2026)"),
     SAMI_TABLUT,
     Rules("sea_battle_9x9", "Sea Battle 9x9, Nielsen setup", SEA_BATTLE_9X9_SETUP,
           first_player="attackers", king_goal="edge", king_capture="strong", king_armed=False,
