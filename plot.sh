@@ -12,6 +12,7 @@ for run_dir in checkpoints/*/*/; do
     fi
     echo "Processing $input_file..."
     .venv/bin/python plot.py "$input_file"
+    .venv/bin/python plot_tactics.py "$run_dir"
     echo ""
 done
 echo "Done processing all runs."

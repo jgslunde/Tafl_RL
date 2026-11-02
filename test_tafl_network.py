@@ -15,7 +15,8 @@ import torch
 from dataclasses import replace
 
 from convert_to_onnx import OUTPUT_NAMES, export_to_onnx
-from features import FeatureSpec, build_features, constant_planes, defender_region_plane, reach_planes
+from features import (FeatureSpec, build_features, constant_planes, defender_region_plane, king_region_plane,
+                      reach_planes, repetition_plane)
 from network_config import NetworkConfig
 from run_config import TrainingConfig, apply_overrides, from_dict, load_config
 from tafl import ATTACKER, DEFENDER, ENDINGS, KING, RULESETS, Tafl, move_index, policy_size
@@ -80,13 +81,15 @@ def test_reach_planes_match_move_generator():
 def test_feature_layout():
     """Plane names, counts and contents of every feature option."""
     game = Tafl("brandubh_2")
-    full = FeatureSpec(history_length=2, constant_planes=True, mobility_planes=True, region_plane=True)
+    full = FeatureSpec(history_length=2, constant_planes=True, mobility_planes=True, region_plane=True,
+                       king_region_plane=True, repetition_plane=True)
     names = full.plane_names()
     assert names == ["attackers_t0", "defenders_t0", "king_t0", "attackers_t1", "defenders_t1", "king_t1",
                      "player", "ones", "corners", "throne", "reach_attackers", "reach_defenders",
-                     "reach_king", "defender_region"]
+                     "reach_king", "defender_region", "king_region", "repetition"]
     state = build_features(game, full)
-    assert state.shape == (14, 7, 7) and state.dtype == np.float32
+    assert state.shape == (16, 7, 7) and state.dtype == np.float32
+    assert np.array_equal(state[14], king_region_plane(game)) and not state[15].any()
     assert np.array_equal(state[:3], game.get_state()[:3]) and not state[3:6].any()  # no earlier position
     assert np.array_equal(state[6], game.get_state()[3])
     assert state[7].all() and state[8].sum() == 4 and state[8, 0, 0] == 1 and state[9].sum() == 1 and state[9, 3, 3] == 1
@@ -98,6 +101,55 @@ def test_feature_layout():
     # The default spec gives the classic 4 planes
     assert np.array_equal(build_features(game, FeatureSpec()), game.get_state())
     print("  feature planes: names, order and contents as documented")
+    return True
+
+
+def test_king_region_plane():
+    """The king's area, on a hand-made fort, and on random positions."""
+    game = Tafl("copenhagen")
+    game.board[:] = 0
+    game.board[0, 5] = KING
+    for r, c in [(0, 3), (1, 4), (1, 5), (1, 6), (0, 7)]:
+        game.board[r, c] = DEFENDER
+    game.board[5, 5] = ATTACKER
+    region = king_region_plane(game)
+    assert region.sum() == 3 and region[0, 4] and region[0, 5] and region[0, 6], "the fort's inside"
+    game.board[1, 5] = 0
+    assert king_region_plane(game).sum() == 121 - 5, "an open wall joins the area to the rest of the board"
+    game.board[game.board == KING] = 0
+    assert not king_region_plane(game).any(), "no king, no area"
+    rng = np.random.default_rng(1)
+    for _ in range(30):
+        game = random_position("copenhagen", rng, max_plies=80)
+        region = king_region_plane(game).astype(bool)
+        if not game.game_over:
+            assert region[game.board == KING].all() and (game.board[region] != ATTACKER).all()
+            assert (game.board[region] != DEFENDER).all()
+    print("  king-region plane: the squares the king can walk to")
+    return True
+
+
+def test_repetition_plane():
+    """The plane turns on exactly when one more occurrence ends the game, here and in the search."""
+    game = Tafl("copenhagen")
+    assert game.rules.repetition_count == 3
+    shuffle = [(3, 0, 3, 1), (3, 5, 3, 4), (3, 1, 3, 0), (3, 4, 3, 5)]
+    for move in shuffle[:3]:
+        assert game.make_move(move) and not repetition_plane(game).any()
+    assert game.make_move(shuffle[3])  # the start position again: its second occurrence
+    assert repetition_plane(game).shape == game.board.shape and repetition_plane(game).all()
+    spec = FeatureSpec(repetition_plane=True)
+    assert build_features(game.clone(), spec)[-1].all(), "a clone keeps the history"
+    assert not build_features(Tafl("copenhagen"), spec)[-1].any()
+    # With five occurrences to end the game, the second is still far from the end
+    longer = Tafl(replace(RULESETS["copenhagen"], repetition_count=5))
+    for move in shuffle:
+        longer.make_move(move)
+    assert not repetition_plane(longer).any()
+    for move in shuffle * 2:
+        longer.make_move(move)
+    assert repetition_plane(longer).all() and not longer.game_over
+    print("  repetition plane: on when one more occurrence ends the game")
     return True
 
 
@@ -282,7 +334,7 @@ def test_run_configs():
             assert data["system"]["num_workers"] is None, f"{name}: num_workers must be null"
             for section in ("game", "self_play", "training", "replay_buffer", "evaluation"):
                 assert data[section] == baseline_data[section], f"{ruleset}/{name}: {section} differs"
-    assert found == 25
+    assert found == 26
     baseline = load_config(os.path.join(CONFIG_DIR, "brandubh_2", "baseline.json"))
     assert (baseline.num_mcts_sims_attacker, baseline.batch_size, baseline.network.value_hidden,
             baseline.network.squeeze_excitation, baseline.rules.throne) == (1000, 256, 256, True, True)
@@ -372,7 +424,8 @@ def test_training_end_to_end():
 
 if __name__ == "__main__":
     print("Testing the configurable networks, features and configs...")
-    tests = [test_reach_planes_match_move_generator, test_feature_layout, test_policy_head_index_order,
+    tests = [test_reach_planes_match_move_generator, test_feature_layout, test_king_region_plane,
+             test_repetition_plane, test_policy_head_index_order,
              test_line_block_sees_whole_lines, test_attention_block_sees_whole_board,
              test_architectures_forward_and_onnx,
              test_checkpoint_loading_and_stem_adaptation, test_run_configs,

@@ -94,6 +94,8 @@ def random_position(kind: str, rules, rng) -> Optional[Tafl]:
         area[m + rng.integers(-2, 3), m + rng.integers(-2, 3)] = True
         for _ in range(rng.integers(8, 50)):
             frontier = np.argwhere(scipy.ndimage.binary_dilation(area) & ~area & ~edge)
+            if len(frontier) == 0:  # all squares off the edge are taken (small boards)
+                break
             area[tuple(frontier[rng.integers(len(frontier))])] = True
         ring = scipy.ndimage.binary_dilation(area) & ~area
         if ring.sum() > 24 or (ring & throne).any():

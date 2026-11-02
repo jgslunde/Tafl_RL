@@ -10,6 +10,8 @@ A FeatureSpec says which planes a network gets. The plane order is fixed:
     [ones, corners, throne]                                    if constant_planes
     [reach_attackers, reach_defenders, reach_king]             if mobility_planes
     [defender_region]                                          if region_plane
+    [king_region]                                              if king_region_plane
+    [repetition]                                               if repetition_plane
 
 With history_length = 1 and nothing else, this is the classic 4-plane input of the older networks.
 Every plane holds only 0 and 1, so the replay buffer can store states as uint8.
@@ -22,7 +24,11 @@ on its own:
 - reach planes mark the squares each side can move to this turn (pseudo-legal moves, i.e. without
   the repetition rule), which is the first step of every capture, block and escape threat;
 - the defender-region plane marks the squares connected to a defender or the king without
-  crossing an attacker (the encirclement rule asks whether this region touches the edge).
+  crossing an attacker (the encirclement rule asks whether this region touches the edge);
+- the king-region plane marks the squares the king can walk to through empty squares, which in an
+  exit fort is exactly the fort's inside;
+- the repetition plane is all ones when one more occurrence of the current position ends the game
+  (the board alone cannot show this, as the same board can be a first or a later occurrence).
 The corner and throne planes are empty in rule sets without corner squares or throne.
 A browser implementation must build the same planes in the same order; see plane_names().
 """
@@ -46,6 +52,8 @@ class FeatureSpec:
     constant_planes: bool = False
     mobility_planes: bool = False
     region_plane: bool = False
+    king_region_plane: bool = False
+    repetition_plane: bool = False
 
     def __post_init__(self):
         if self.history_length < 1:
@@ -63,6 +71,10 @@ class FeatureSpec:
             names += ["reach_attackers", "reach_defenders", "reach_king"]
         if self.region_plane:
             names.append("defender_region")
+        if self.king_region_plane:
+            names.append("king_region")
+        if self.repetition_plane:
+            names.append("repetition")
         return names
 
     @property
@@ -167,6 +179,22 @@ def defender_region_plane(game) -> np.ndarray:
     return np.isin(areas, defender_areas[defender_areas > 0]).astype(np.float32)
 
 
+def king_region_plane(game) -> np.ndarray:
+    """
+    The king's square and the empty squares connected to it (neighbours share a side): where he can
+    go in any number of moves if no other piece moves. In an exit fort this is the fort's inside.
+    """
+    board = game.board
+    areas, _ = scipy.ndimage.label((board == EMPTY) | (board == KING))
+    return np.isin(areas, areas[board == KING]).astype(np.float32)
+
+
+def repetition_plane(game) -> np.ndarray:
+    """All ones if one more occurrence of the current position ends the game, else all zeros."""
+    occurrences = game.position_history.count(game.position_history[-1])
+    return np.full(game.board.shape, occurrences >= game.rules.repetition_count - 1, dtype=np.float32)
+
+
 class StateHistory:
     """
     The piece planes [attackers, defenders, king] of the last history_length positions, newest
@@ -229,4 +257,8 @@ def build_features(game, spec: FeatureSpec, history: Optional[StateHistory] = No
         planes.append(reach_planes(game))
     if spec.region_plane:
         planes.append(defender_region_plane(game)[None])
+    if spec.king_region_plane:
+        planes.append(king_region_plane(game)[None])
+    if spec.repetition_plane:
+        planes.append(repetition_plane(game)[None])
     return np.concatenate(planes, axis=0) if len(planes) > 1 else planes[0]

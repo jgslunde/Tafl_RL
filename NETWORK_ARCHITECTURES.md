@@ -113,6 +113,8 @@ board size is the number of facts built on other facts, so add blocks before cha
 | `constant_planes`: ones, corners, throne | edges and special squares in the first layer | none |
 | `mobility_planes`: squares each side can move to, squares the king can move to | Reach and Arrival, computed exactly by the move generator | 0.17 ms per position at 11x11 |
 | `region_plane`: squares connected to the king without crossing an attacker | the encirclement question, answered | 0.15 ms per position at 11x11 |
+| `king_region_plane`: squares the king can walk to through empty squares | the inside of an exit fort | 0.16 ms per position at 11x11 |
+| `repetition_plane`: all ones if one more occurrence of the position ends the game | what the board cannot show: a first or a later occurrence | 0.005 ms per position |
 | `history_length`: piece planes of earlier positions | repetition and tempo | none |
 
 The reach and region planes hand the network its hardest facts. In training they are built in
@@ -193,6 +195,7 @@ the same few openings). The 11x11 baseline is new: the old script's settings had
 | copenhagen | `baseline` | 8x64 res, dense heads, 4 planes | 1,793,288 | the reference: an old-style network with the same settings |
 | copenhagen | `line_10x64_gpool` | 10 line blocks x 64, global pool, 7 planes | 516,244 | the main run; depth for encirclement, 1.2x faster than the baseline |
 | copenhagen | `line_10x64_gpool_mobility_region` | line_10x64_gpool + reach planes + defender-region plane, 11 planes | 518,548 | the encirclement question answered by the engine (+0.3 ms per node) |
+| copenhagen | `line_10x64_gpool_planes` | line_10x64_gpool + defender-region, king-region and repetition planes, 10 planes (13 with `network.features.mobility_planes=true`) | 517,972 | forts and rings: the areas they depend on, and repeated positions, given directly |
 | copenhagen | `line_10x64_gpool_attention` | line_10x64_gpool with blocks 4 and 8 as attention blocks, 7 planes | 491,996 | whole-board shapes learned instead of computed; 8.2 ms per call against 6.6 ms |
 | copenhagen | `attention_8x64` | 8 attention blocks x 64 (4 heads), bilinear policy, pooled value, 7 planes | 318,222 | experiment: a pure transformer as in Leela Chess Zero; 1.3x slower per call than `line_10x64_gpool` (owl33: 9.8 against 7.4 ms) |
 
@@ -257,6 +260,11 @@ network was trained with (`rules`: the fields of `tafl.Rules`, setup included). 
                                                      pseudo-legal moves; defenders include the king)
 [defender_region]                                   if region_plane (flood fill from the defenders and
                                                      the king through non-attacker squares)
+[king_region]                                       if king_region_plane (flood fill from the king
+                                                     through empty squares)
+[repetition]                                        if repetition_plane (all ones if the position has
+                                                     occurred repetition_count - 1 times, this one
+                                                     included; needs the game's position history)
 ```
 
 The policy output keeps the old index: `from_square * 4(N-1) + direction * (N-1) + distance - 1`,
