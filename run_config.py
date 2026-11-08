@@ -44,13 +44,16 @@ class TrainingConfig:
     num_games_per_iteration = 100     # Self-play games per iteration
     num_mcts_sims_attacker = 100      # MCTS simulations for attacker in self-play
     num_mcts_sims_defender = 100      # MCTS simulations for defender in self-play
+    full_search_share = 1.0           # Share of moves with a full search; the others get a cheap one (1.0 = all full)
+    cheap_search_sims = 60            # Simulations of a cheap search: no noise, position not stored for training
     c_puct = 1.4                      # MCTS exploration constant for self-play
     fpu_reduction = -0.5              # First Play Urgency: reduction relative to parent Q-value
-    search_discount = 1.0             # Search depth discount per move during MCTS backup
+    search_discount = 1.0             # Search only: every value is multiplied by this per ply of backup (1.0 = none)
     temperature = 1.0                 # Sampling temperature for moves
     temperature_mode = "king"         # "fixed": drop at threshold, "king": drop when king leaves, "decay": linear
     temperature_threshold = 15        # Move number after which temperature = 0 (for "fixed" mode)
     temperature_decay_moves = 30      # Number of moves for linear decay (for "decay" mode)
+    temperature_floor = 0.0           # Lowest self-play temperature, also after the schedule above ends
     add_dirichlet_noise = True        # Add Dirichlet noise to root for exploration
     dirichlet_alpha = 0.3             # Concentration parameter (lower = more concentrated)
     dirichlet_epsilon = 0.25          # Weight of noise (0.25 = 25% noise, 75% network priors)
@@ -58,7 +61,7 @@ class TrainingConfig:
     use_dynamic_sim_balancing = False # Move simulations to the side that scores too little
     dynamic_sim_adjustment_rate = 0.1 # Fraction of the distance to the band corrected per update
     dynamic_sim_min_win_rate = 0.2    # Keep each side's score >= this (band [x, 1-x]); 0.5 = push towards 50%
-    reward_discount = 0.98            # Value-target discount per ply (1.0 = no discount)
+    reward_discount = 0.98            # Training only: value target = result * this ** plies to the end (1.0 = plain result)
     track_unique_states = False       # Report unique board states seen in self-play (adds overhead)
 
     # Network (a NetworkConfig; a fresh copy per instance, see __init__)
@@ -158,9 +161,10 @@ class TrainingConfig:
 SECTIONS: Dict[str, List[str]] = {
     "game": ["ruleset", "max_game_length"],
     "self_play": ["num_iterations", "num_games_per_iteration", "num_mcts_sims_attacker",
-                  "num_mcts_sims_defender", "c_puct", "fpu_reduction", "search_discount", "temperature",
+                  "num_mcts_sims_defender", "full_search_share", "cheap_search_sims", "c_puct",
+                  "fpu_reduction", "search_discount", "temperature",
                   "temperature_mode", "temperature_threshold", "temperature_decay_moves",
-                  "add_dirichlet_noise", "dirichlet_alpha", "dirichlet_epsilon", "use_random_opening_moves",
+                  "temperature_floor", "add_dirichlet_noise", "dirichlet_alpha", "dirichlet_epsilon", "use_random_opening_moves",
                   "use_dynamic_sim_balancing", "dynamic_sim_adjustment_rate", "dynamic_sim_min_win_rate",
                   "reward_discount", "track_unique_states"],
     "training": ["batch_size", "num_epochs", "batches_per_epoch", "learning_rate", "lr_decay", "lr_floor",

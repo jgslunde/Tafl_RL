@@ -94,8 +94,8 @@ def test_king_capture():
         ("brandubh_1", {(2, 3): K, (2, 2): A, (6, 4): A}, (6, 4, 2, 4), False),
         ("brandubh_1", {(2, 3): K, (2, 2): A, (1, 3): A, (6, 4): A}, (6, 4, 2, 4), True),
         ("brandubh_1", {(1, 1): K, (1, 0): A, (6, 2): A}, (6, 2, 1, 2), True),
-        # Walker's Brandub: two sides also on the throne
-        ("walker_brandub", {(3, 3): K, (3, 2): A, (6, 4): A}, (6, 4, 3, 4), True),
+        # Walker's Brandubh: two sides also on the throne
+        ("walker_brandubh", {(3, 3): K, (3, 2): A, (6, 4): A}, (6, 4, 3, 4), True),
         # Sami Tablut: next to the throne the three other sides, elsewhere two
         ("sami_tablut", {(3, 4): K, (3, 3): A, (6, 5): A}, (6, 5, 3, 5), False),
         ("sami_tablut", {(3, 4): K, (3, 3): A, (2, 4): A, (6, 5): A}, (6, 5, 3, 5), True),
@@ -132,7 +132,7 @@ def test_hostile_squares():
     assert game.board[2, 3] == D, "a throne with the king on it is not hostile to defenders"
     game = after("brandubh_2", {(3, 2): A, (6, 1): D, (0, 1): K, (5, 5): A}, 1, (6, 1, 3, 1))
     assert game.board[3, 2] == EMPTY, "the empty throne must capture an attacker"
-    game = after("walker_brandub", *defender_vs_throne)
+    game = after("walker_brandubh", *defender_vs_throne)
     assert game.board[2, 3] == D, "a throne that is not hostile captures nothing"
     game = after("copenhagen", {(0, 1): D, (3, 2): A, (5, 5): K, (8, 8): A}, 0, (3, 2, 0, 2))
     assert game.board[0, 1] == EMPTY, "a corner must capture a defender"

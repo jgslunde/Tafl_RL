@@ -195,7 +195,8 @@ the same few openings). The 11x11 baseline is new: the old script's settings had
 | copenhagen | `baseline` | 8x64 res, dense heads, 4 planes | 1,793,288 | the reference: an old-style network with the same settings |
 | copenhagen | `line_10x64_gpool` | 10 line blocks x 64, global pool, 7 planes | 516,244 | the main run; depth for encirclement, 1.2x faster than the baseline |
 | copenhagen | `line_10x64_gpool_mobility_region` | line_10x64_gpool + reach planes + defender-region plane, 11 planes | 518,548 | the encirclement question answered by the engine (+0.3 ms per node) |
-| copenhagen | `line_10x64_gpool_planes` | line_10x64_gpool + defender-region, king-region and repetition planes, 10 planes (13 with `network.features.mobility_planes=true`) | 517,972 | forts and rings: the areas they depend on, and repeated positions, given directly |
+| copenhagen | `v2_line_10x64_gpool_all_planes` | line_10x64_gpool + reach, defender-region, king-region and repetition planes, 13 planes | 519,700 | forts and rings: the areas they depend on, and repeated positions, given directly. Also a new training recipe: plain result as value target, constant learning rate, mixed search sizes |
+| copenhagen | `v2_5_line_10x64_gpool_all_planes` | the v2 network, continued from a v2 checkpoint | 519,700 | exit forts through more variety late in the game: self-play temperature never below 0.2. Also only full searches stored, and the newest iteration held out for validation |
 | copenhagen | `line_10x64_gpool_attention` | line_10x64_gpool with blocks 4 and 8 as attention blocks, 7 planes | 491,996 | whole-board shapes learned instead of computed; 8.2 ms per call against 6.6 ms |
 | copenhagen | `attention_8x64` | 8 attention blocks x 64 (4 heads), bilinear policy, pooled value, 7 planes | 318,222 | experiment: a pure transformer as in Leela Chess Zero; 1.3x slower per call than `line_10x64_gpool` (owl33: 9.8 against 7.4 ms) |
 

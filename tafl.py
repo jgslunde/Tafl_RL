@@ -232,8 +232,8 @@ RULESETS = {rules.name: rules for rules in [
     replace(BRANDUBH_2, name="brandubh_1", king_capture="weak_near_throne",
             description="Brandubh 1 7x7 (aagenielsen.dk, 2015-2020): Brandubh 2, but the king "
                         "beside the throne is captured by three"),
-    replace(BRANDUBH_2, name="walker_brandub", king_capture="weak", throne_hostile=False,
-            description="Walker's Brandub 7x7 (2011), as played on aagenielsen.dk"),
+    replace(BRANDUBH_2, name="walker_brandubh", king_capture="weak", throne_hostile=False,
+            description="Walker's Brandubh 7x7 (2011), as played on aagenielsen.dk"),
     replace(BRANDUBH_2, name="brandubh_2_5w", first_player="defenders", throne_passable=False,
             repetition_count=5, description="Brandubh 2.5W 7x7 (draft of February 2026)"),
     SAMI_TABLUT,

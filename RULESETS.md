@@ -21,7 +21,7 @@ fair. The number of games is in brackets.
 |---|---|---|---|---|---|---|---|---|---|---|
 | `brandubh_2` | C1 Brandubh 2 | 7x7 | attackers | corner | two; four on the throne | hostile | encirclement | 3rd: attackers win | 62 % (2,318) | `configs/brandubh_2/` |
 | `brandubh_1` | D, note (d) | 7x7 | attackers | corner | two; four on the throne, three beside it | hostile | encirclement | 3rd: attackers win | 57 % (926) | `configs/brandubh_1/` |
-| `walker_brandub` | C2 Walker's Brandub | 7x7 | attackers | corner | two everywhere | not hostile | encirclement | 3rd: attackers win | 55 % (468) | `configs/walker_brandub/` |
+| `walker_brandubh` | C2 Walker's Brandubh | 7x7 | attackers | corner | two everywhere | not hostile | encirclement | 3rd: attackers win | 55 % (468) | `configs/walker_brandubh/` |
 | `brandubh_2_5w` | C3 Brandubh 2.5W | 7x7 | defenders | corner | two; four on the throne | hostile, only the king may pass | encirclement | 5th: attackers win | 59 % (354) | `configs/brandubh_2_5w/` |
 | `sami_tablut` | C4 Sami Tablut | 9x9 | defenders | edge | two; four on the throne, three beside it | hostile | encirclement | 3rd: attackers win | 49 % (966) | `configs/sami_tablut/` |
 | `sea_battle_9x9` | C5 Sea Battle | 9x9 | attackers | edge | four; unarmed king | none | encirclement | 3rd: attackers win | 51 % (352) | |
@@ -47,7 +47,7 @@ a draw after `max_game_length` plies; the published rules have no such limit.
   a front piece.
 - Exit fort (B2): `_king_in_exit_fort`, the reference's safe-set test, after every defenders' move.
 - The cards' **[Ours]** choices are all taken as written. One of them deserves a check: Walker's
-  Brandub with encirclement.
+  Brandubh with encirclement.
 - Not implemented: draws by agreement (A10) and two-game match scoring (A11). Neither matters for
   self-play.
 - A finished game records how it ended in `Tafl.end_reason`, one of `tafl.ENDINGS`:
@@ -68,6 +68,6 @@ a draw after `max_game_length` plies; the published rules have no such limit.
 - `sami_tablut` now means the defenders-first championship version (the former
   `sami_tablut_defenders_first`); the attackers-first version is gone.
 - `old_hnefatafl` is gone: it is not one of the nine variants.
-- New: `walker_brandub`, `brandubh_2_5w`, `sea_battle_9x9`, `market_hnefatafl`,
+- New: `walker_brandubh`, `brandubh_2_5w`, `sea_battle_9x9`, `market_hnefatafl`,
   `historical_lewis`, `historical_bell` and `simple_tafl`.
 

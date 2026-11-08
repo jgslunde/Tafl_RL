@@ -1,7 +1,7 @@
 #!/bin/bash
 # Training run from configs/<rule set>/<run>.json, writing to checkpoints/<rule set>/<run>/.
 # The rule sets and their configs are listed in RULESETS.md; within a rule set the configs share
-# all settings except the network.
+# all settings except the network, apart from the v2_ configs, which have their own training recipe.
 # Start one per free node inside screen:
 #   screen -S sim1 ./run.sh copenhagen line_10x64_gpool
 #   screen -S sim2 ./run.sh sami_tablut line_6x48_gpool
@@ -23,4 +23,4 @@ cd "$(dirname "$0")"
 run_dir=checkpoints/$ruleset/$name
 mkdir -p $run_dir
 OMP_NUM_THREADS=$TRAIN_THREADS MKL_NUM_THREADS=$TRAIN_THREADS exec .venv/bin/python -u run_training.py \
-    configs/$ruleset/$name.json --num-workers 64 --log $run_dir/output.txt "$@"
+    configs/$ruleset/$name.json --num-workers 48 --log $run_dir/output.txt "$@"

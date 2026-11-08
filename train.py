@@ -61,7 +61,8 @@ class ReplayBuffer:
     train_network applies a random symmetry to every position it draws. States are stored as uint8,
     since all input planes are 0 or 1. winners holds the game result: 0 attacker, 1 defender,
     -1 draw. endings holds how the game ended (an index into tafl.ENDINGS), moves_left the number
-    of plies from the position to the end of the game.
+    of plies from the position to the end of the game. num_newest is the number of positions of the
+    last add() call (one iteration of self-play), which train_network holds out for validation.
     """
 
     def __init__(self, max_samples: int, state_shape: Tuple[int, ...], policy_size: int,
@@ -75,6 +76,7 @@ class ReplayBuffer:
         self.endings = np.zeros(capacity, dtype=np.int64)
         self.moves_left = np.zeros(capacity, dtype=np.float32)
         self.num_positions = 0  # number of filled entries
+        self.num_newest = 0     # number of entries written by the last add()
         self.next_index = 0     # entry written next; once the buffer is full, the oldest entry
 
     def add(self, states: np.ndarray, policies: np.ndarray, values: np.ndarray,
@@ -92,6 +94,7 @@ class ReplayBuffer:
         self.moves_left[indices] = moves_left
         self.next_index = (self.next_index + len(values)) % capacity
         self.num_positions = min(self.num_positions + len(values), capacity)
+        self.num_newest = min(len(values), capacity)
 
     def __len__(self):
         """Number of samples, i.e. positions times symmetries."""
@@ -531,7 +534,8 @@ def _play_self_play_game_worker(network_path, network_config, rules,
                                 temperature_threshold, temperature_decay_moves, game_idx,
                                 add_dirichlet_noise, dirichlet_alpha, dirichlet_epsilon, fpu_reduction, temp_dir=None,
                                 track_unique_states=False, use_random_opening_moves=False, max_game_length=500,
-                                search_discount=1.0):
+                                search_discount=1.0, full_search_share=1.0, cheap_search_sims=60,
+                                temperature_floor=0.0):
     """
     Worker function for parallel self-play game generation.
     Must be at module level for multiprocessing. Imports torch inside to avoid pickling issues.
@@ -557,6 +561,10 @@ def _play_self_play_game_worker(network_path, network_config, rules,
         use_random_opening_moves: If True, 50% of games start with 1-4 random moves (2-8 ply)
         max_game_length: Maximum number of moves before declaring draw
         search_discount: Discount factor per move during MCTS value backup (1.0 = no discount)
+        full_search_share: Share of moves with a full search (num_sims_*, noise), the only moves
+                           stored for training
+        cheap_search_sims: Simulations of the other moves (no noise, not stored)
+        temperature_floor: Lowest temperature of any move, also after the schedule has ended
 
     Returns:
         dict with game data and MCTS timing information, or None if _stop_self_play was set
@@ -699,7 +707,8 @@ def _play_self_play_game_worker(network_path, network_config, rules,
             else:  # "fixed" mode
                 # Drop temperature after a fixed number of moves
                 temp = temperature if move_count < temperature_threshold else 0.0
-            
+            temp = max(temp, temperature_floor)
+
             # The network input of this position (the same planes the search builds)
             state = build_features(game, feature_spec, state_history)
             
@@ -715,7 +724,9 @@ def _play_self_play_game_worker(network_path, network_config, rules,
                     mate_in_1_move = test_move
                     break
             
-            # If mate-in-1 exists, create forced policy and skip MCTS
+            # If mate-in-1 exists, create forced policy and skip MCTS. That policy is exact, so it counts
+            # as a full search and is stored.
+            full_search = True
             if mate_in_1_move is not None:
                 # Create policy with 100% on winning move
                 policy_size = board_size * board_size * 4 * (board_size - 1)
@@ -726,7 +737,13 @@ def _play_self_play_game_worker(network_path, network_config, rules,
                 # Create visit_probs for move selection (100% on winning move)
                 visit_probs = {mate_in_1_move: 1.0}
             else:
-                # Run MCTS to get policy (normal case)
+                # Run MCTS to get policy (normal case). A cheap search only picks the move, so that the
+                # game stays well played: it needs no noise, and its position is not stored (as in
+                # KataGo). Cheap moves give more games per hour, so the value head sees more games.
+                full_search = np.random.random() < full_search_share
+                full_sims = num_sims_attacker if current_player == 0 else num_sims_defender
+                mcts.num_simulations = full_sims if full_search else cheap_search_sims
+                mcts.add_dirichlet_noise = add_dirichlet_noise and full_search
                 # Pass state_history for history planes support
                 visit_probs = mcts.search(game, state_history=state_history)
                 
@@ -737,12 +754,13 @@ def _play_self_play_game_worker(network_path, network_config, rules,
                     idx = move_index(move, board_size)
                     policy[idx] = prob
             
-            # Store experience
-            states.append(state)
-            policies.append(policy)
-            players.append(current_player)
-            plies.append(move_count)
-            mate_in_1_flags.append(mate_in_1_move is not None)  # Mark if this was a mate-in-1 position
+            # Store experience (full searches only)
+            if full_search:
+                states.append(state)
+                policies.append(policy)
+                players.append(current_player)
+                plies.append(move_count)
+                mate_in_1_flags.append(mate_in_1_move is not None)  # Mark if this was a mate-in-1 position
             
             # Track state hash if enabled (for diversity analysis)
             if track_unique_states:
@@ -908,7 +926,8 @@ def generate_self_play_data(agent: Agent, config: TrainingConfig, pool=None, tem
                         config.temperature_threshold, config.temperature_decay_moves,
                         game_idx, config.add_dirichlet_noise, config.dirichlet_alpha, config.dirichlet_epsilon,
                         config.fpu_reduction, config.temp_dir, config.track_unique_states,
-                        config.use_random_opening_moves, config.max_game_length, config.search_discount)
+                        config.use_random_opening_moves, config.max_game_length, config.search_discount,
+                        config.full_search_share, config.cheap_search_sims, config.temperature_floor)
                        for game_idx in range(2 * config.num_games_per_iteration)]
 
         # Play games in parallel. imap_unordered with chunksize=1 hands out one game at a time, and once
@@ -1038,7 +1057,8 @@ def generate_self_play_data(agent: Agent, config: TrainingConfig, pool=None, tem
     attacker_wins = sum(record['winner'] == 'attackers' for record in games)
     defender_wins = sum(record['winner'] == 'defenders' for record in games)
     draws = total_games - attacker_wins - defender_wins
-    print(f"Generated {len(position_values)} training positions")
+    print(f"Generated {len(position_values)} training positions from "
+          f"{sum(game_data['num_moves'] for game_data in game_results)} moves")
     print(f"Results: {attacker_wins} attacker wins ({100*attacker_wins/total_games:.1f}%), "
           f"{defender_wins} defender wins ({100*defender_wins/total_games:.1f}%), "
           f"{draws} draws ({100*draws/total_games:.1f}%)")
@@ -1159,8 +1179,8 @@ def train_network(network: nn.Module, buffer: ReplayBuffer,
     cell_perm, move_perm = symmetry_permutations(config.board_size)
 
     def get_batch(indices, symmetries):
-        """Tensors (states, policies, values, winners, endings, moves_left) of buffer entries
-        `indices`, each entry turned by its board symmetry (an index into cell_perm / move_perm)."""
+        """Tensors (states, policies, values, winners, endings, moves_left) of buffer
+        entries `indices`, each entry turned by its board symmetry (an index into cell_perm / move_perm)."""
         # Flatten the board, so that a symmetry reorders the last axis
         states = buffer.states[indices].reshape(len(indices), buffer.states.shape[1], -1)
         policies = buffer.policies[indices]
@@ -1178,19 +1198,21 @@ def train_network(network: nn.Module, buffer: ReplayBuffer,
                 torch.from_numpy(buffer.moves_left[indices]).to(device))
 
     # Training: batch_size * batches_per_epoch samples per epoch (fewer if the buffer is smaller).
-    # Validation: 0.25x that volume, from the newest positions in the buffer, each under all its
-    # symmetries. They are left out of training in this call (and trained on from the next iteration
-    # on). Positions are stored game by game, so only the first held-out game is split.
+    # Validation: the positions of the newest iteration (at most half the buffer) are left out of
+    # training in this call, and trained on from the next iteration on. The validation losses use
+    # 0.25x the training volume, drawn at random from all of them with one random symmetry each, so
+    # that they span all games of the iteration: the noise of the value loss depends on the number
+    # of games, since all positions of a game share its result.
     total_samples = len(buffer)
     train_samples_per_epoch = min(total_samples, config.batch_size * config.batches_per_epoch)
-    num_val_positions = train_samples_per_epoch // 4 // num_symmetries
     capacity = len(buffer.values)
     oldest = buffer.next_index if buffer.num_positions == capacity else 0
     positions_by_age = (oldest + np.arange(buffer.num_positions)) % capacity  # oldest first
-    train_positions = positions_by_age[:buffer.num_positions - num_val_positions]
-    val_positions = positions_by_age[buffer.num_positions - num_val_positions:]
-    val_indices = np.repeat(val_positions, num_symmetries)
-    val_symmetries = np.tile(np.arange(num_symmetries), num_val_positions)
+    num_held_out = min(buffer.num_newest, buffer.num_positions // 2)
+    train_positions = positions_by_age[:buffer.num_positions - num_held_out]
+    held_out = positions_by_age[buffer.num_positions - num_held_out:]
+    val_indices = rng.permutation(held_out)[:train_samples_per_epoch // 4]
+    val_symmetries = rng.integers(0, num_symmetries, len(val_indices))
 
     batches_per_epoch = min(config.batches_per_epoch, total_samples // config.batch_size)
     if len(train_positions) < config.batch_size or batches_per_epoch == 0:
@@ -2015,6 +2037,9 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
     print("Self-play simulations:")
     print(f"  Attacker: {config.num_mcts_sims_attacker}")
     print(f"  Defender: {config.num_mcts_sims_defender}")
+    if config.full_search_share < 1.0:
+        print(f"  Only on {100 * config.full_search_share:.0f} % of moves; the others get {config.cheap_search_sims} "
+              "simulations without noise and are not stored for training")
     print("Evaluation simulations:")
     print(f"  Attacker: {config.eval_mcts_sims_attacker}")
     print(f"  Defender: {config.eval_mcts_sims_defender}")
@@ -2026,6 +2051,8 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
     print(f"  Evaluation: {config.eval_fpu_reduction}")
     print(f"Temperature: {config.temperature}")
     print(f"Temperature mode: {config.temperature_mode}")
+    if config.temperature_floor > 0:
+        print(f"  Never below {config.temperature_floor} in self-play")
     if config.temperature_mode == "king":
         print(f"  Temperature drops when king leaves throne")
     elif config.temperature_mode == "decay":

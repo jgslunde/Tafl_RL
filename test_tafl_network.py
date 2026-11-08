@@ -327,14 +327,16 @@ def test_run_configs():
             assert config.checkpoint_dir == f"checkpoints/{ruleset}/{name[:-5]}", f"{name}: checkpoint_dir"
             assert from_dict(config.to_dict()).to_dict() == config.to_dict(), f"round trip changed {name}"
             assert config.to_flat_dict()["rules"] == RULESETS[ruleset].to_dict()
-            assert config.search_discount == config.reward_discount, f"{name}: discounts differ"
             TaflNet(config.network, config.board_size)  # every network builds
             with open(path) as f:
                 data = json.load(f)
             assert data["system"]["num_workers"] is None, f"{name}: num_workers must be null"
+            if name.startswith("v2_"):  # the second training recipe: it shares only the rule set
+                continue
+            assert config.search_discount == config.reward_discount, f"{name}: discounts differ"
             for section in ("game", "self_play", "training", "replay_buffer", "evaluation"):
                 assert data[section] == baseline_data[section], f"{ruleset}/{name}: {section} differs"
-    assert found == 26
+    assert found == 27
     baseline = load_config(os.path.join(CONFIG_DIR, "brandubh_2", "baseline.json"))
     assert (baseline.num_mcts_sims_attacker, baseline.batch_size, baseline.network.value_hidden,
             baseline.network.squeeze_excitation, baseline.rules.throne) == (1000, 256, 256, True, True)

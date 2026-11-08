@@ -18,12 +18,17 @@ from typing import Tuple
 
 import numpy as np
 import torch
+import torch._inductor.config
 import torch.nn as nn
 import torch.nn.functional as F
 
 from features import FeatureSpec
 from network_config import NetworkConfig
 from tafl import ENDINGS
+
+# torch.compile builds its kernels with g++, whatever $CXX says. With Intel oneAPI loaded, CXX=icpx
+# gives kernels linked to Intel's OpenMP (libiomp5) next to PyTorch's GNU OpenMP, which crashes.
+torch._inductor.config.cpp.cxx = (None, "g++")
 
 # The moves-left output is softplus(head) * MOVES_LEFT_SCALE plies: the head works in units of 100
 # plies, so that its numbers are of order 1 like those of the other heads

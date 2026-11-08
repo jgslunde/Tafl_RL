@@ -377,16 +377,15 @@ def test_replay_buffer_symmetries():
     buffer = ReplayBuffer(5 * 8, (4, 7, 7), 1176, num_symmetries=8)  # room for 5 positions
     for values in (np.arange(3), np.arange(3, 7)):
         n = len(values)
-        buffer.add(np.zeros((n, 4, 7, 7)), np.zeros((n, 1176)), values, np.zeros(n), np.zeros(n),
-                   values)
+        buffer.add(np.zeros((n, 4, 7, 7)), np.zeros((n, 1176)), values, np.zeros(n), np.zeros(n), values)
     assert len(buffer) == 40 and sorted(buffer.values) == [2, 3, 4, 5, 6] and buffer.next_index == 2
     print("  replay buffer: symmetry tables equal augment_sample; ring buffer keeps the newest")
     return True
 
 
 def test_train_network_small_buffers():
-    """A too small buffer must give a clear error; small ones must train, with an empty validation
-    set allowed (division by zero before). Draws and unequal loss boosts must work."""
+    """A too small buffer must give a clear error; small ones must train. Draws and unequal loss
+    boosts must work. The newest add() is held out for validation."""
     config = TrainingConfig()
     config.batch_size, config.batches_per_epoch, config.num_epochs = 4, 2, 1
     game = Tafl("brandubh_2")
@@ -395,7 +394,8 @@ def test_train_network_small_buffers():
     original_compile = torch.compile
     torch.compile = lambda model, **kwargs: model  # no compilation in this test
     try:
-        cases = [(4, 1, False, None), (8, 1, True, False), (6, 8, True, True)]
+        # Half of a buffer filled by one add() is held out, so 4 positions leave too few to train
+        cases = [(4, 1, False, None), (8, 1, True, False), (12, 8, True, False)]
         for num_positions, num_symmetries, trains, val_is_empty in cases:
             buffer = ReplayBuffer(64, (4, 7, 7), 1176, num_symmetries)
             buffer.add(np.repeat(game.get_state()[None], num_positions, axis=0),
@@ -418,9 +418,20 @@ def test_train_network_small_buffers():
             # The per-epoch table: the same keys, one value per epoch
             assert set(losses) == set(LOSS_KEYS) and list(losses['epochs']) == LOSS_KEYS[:-1]
             assert all(len(values) == config.num_epochs for values in losses['epochs'].values())
+
+        # The newest add() is the validation set and is not trained on: its policy target is
+        # scaled up so much that it would dominate any loss it reached
+        buffer = ReplayBuffer(64, (4, 7, 7), 1176, num_symmetries=1)
+        for scale in (1.0, 1000.0):
+            buffer.add(np.repeat(game.get_state()[None], 8, axis=0), np.repeat(scale * policy[None], 8, axis=0),
+                       np.ones(8), np.zeros(8), np.zeros(8), np.ones(8))
+        network = small_network(7)
+        losses = train_network(network, buffer, torch.optim.AdamW(network.parameters()), config)
+        assert losses['policy_loss'] < 50 < losses['val_policy_loss']
     finally:
         torch.compile = original_compile
-    print("  train_network: clear error for a too small buffer; small buffers and draws train")
+    print("  train_network: clear error for a too small buffer; small buffers and draws train; "
+          "the newest iteration is held out")
     return True
 
 
@@ -448,6 +459,71 @@ def test_self_play_targets():
     finally:
         torch.compile = original_compile
     print("  self-play: ending and moves-left targets, game record")
+    return True
+
+
+def test_mixed_search_sizes():
+    """A full search has the full size and noise, and only its position is stored; a cheap one has
+    neither and is not stored. A forced win is exact and is stored too."""
+    config = TrainingConfig()
+    config.num_games_per_iteration, config.num_workers, config.temp_dir = 1, 1, None
+    config.num_mcts_sims_attacker, config.num_mcts_sims_defender = 5, 7
+    config.full_search_share, config.cheap_search_sims = 0.25, 3
+    config.max_game_length, config.add_dirichlet_noise = 60, True
+    config.network = NetworkConfig(channels=8, blocks=["res"])
+    searches = []
+    original_compile, original_search = torch.compile, MCTS.search
+
+    def recording_search(self, game, **kwargs):
+        searches.append((self.num_simulations, self.add_dirichlet_noise, game.current_player))
+        return original_search(self, game, **kwargs)
+
+    torch.compile, MCTS.search = (lambda model, **kwargs: model), recording_search
+    try:
+        positions = generate_self_play_data(Agent(TaflNet(config.network, 7)), config)[0]
+        moves_left = positions[5]
+        assert len(searches) > 10 and {sims for sims, _, _ in searches} == {3, 5, 7}
+        assert all(noise == (sims != 3) for sims, noise, _ in searches), "noise on full searches only"
+        assert all(sims == 3 or sims == (5 if player == 0 else 7) for sims, _, player in searches)
+        # One stored position per full search, plus a forced win (no search) as the last position of
+        # the game. Cheap moves leave gaps between the stored plies.
+        full_searches = sum(sims != 3 for sims, _, _ in searches)
+        assert full_searches <= len(moves_left) <= full_searches + 1 < len(searches)
+        assert np.all(np.diff(moves_left) < 0) and moves_left[-1] >= 1
+    finally:
+        torch.compile, MCTS.search = original_compile, original_search
+    print("  mixed search sizes: size and noise per move; only full searches are stored")
+    return True
+
+
+def test_temperature_floor():
+    """Without a floor, self-play samples moves only while the temperature schedule runs (here the
+    first 2 plies) and plays the top move after that; with a floor it samples every move."""
+    config = TrainingConfig()
+    config.num_games_per_iteration, config.num_workers, config.temp_dir = 1, 1, None
+    config.num_mcts_sims_attacker = config.num_mcts_sims_defender = 2
+    config.temperature_mode, config.temperature_decay_moves = "decay", 2
+    config.max_game_length, config.use_random_opening_moves = 40, False
+    config.network = NetworkConfig(channels=8, blocks=["res"])
+    sampled = []
+    original_compile, original_choice = torch.compile, np.random.choice
+
+    def recording_choice(*args, **kwargs):
+        # Count only the move choices of the self-play worker in train.py
+        if sys._getframe(1).f_code.co_filename.endswith("train.py"):
+            sampled.append(1)
+        return original_choice(*args, **kwargs)
+
+    torch.compile, np.random.choice = (lambda model, **kwargs: model), recording_choice
+    try:
+        for floor in (0.0, 0.2):
+            config.temperature_floor = floor
+            sampled.clear()
+            record = generate_self_play_data(Agent(TaflNet(config.network, 7)), config)[1][0]
+            assert len(sampled) == (min(2, record['plies']) if floor == 0 else record['plies'])
+    finally:
+        torch.compile, np.random.choice = original_compile, original_choice
+    print("  temperature floor: moves sampled after the schedule ends only with a floor")
     return True
 
 
@@ -613,7 +689,8 @@ if __name__ == "__main__":
              test_temperature_and_time_limit, test_play_game_counts_last_ply_win,
              test_unarmed_king_does_not_capture, test_rollout_value_sign,
              test_load_compatible_keeps_player_plane, test_sim_balancer_band, test_replay_buffer_symmetries,
-             test_train_network_small_buffers, test_self_play_targets, test_self_play_stops_workers,
+             test_train_network_small_buffers, test_self_play_targets, test_mixed_search_sizes,
+             test_temperature_floor, test_self_play_stops_workers,
              test_low_temperature_and_eval_mode,
              test_larger_board_networks, test_legal_move_cache,
              test_checkpoint_save_and_resume_history, test_gui_reads_checkpoint_settings]
