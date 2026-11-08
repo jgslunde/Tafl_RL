@@ -435,6 +435,49 @@ def test_train_network_small_buffers():
     return True
 
 
+def test_ending_boost():
+    """ending_boost weights all positions of the games with that ending, early ones too, and an
+    unknown ending name is an error. The learning rate is 0, so every call sees the same network."""
+    config = TrainingConfig()
+    config.batch_size, config.batches_per_epoch, config.num_epochs = 8, 1, 1
+    game = Tafl("brandubh_2")
+    policy = np.zeros(1176, dtype=np.float32)
+    policy[move_index(game.get_legal_moves()[0], 7)] = 1.0
+    captured = ENDINGS.index("king_captured")  # an ending brandubh_2 allows
+    original_compile = torch.compile
+    torch.compile = lambda model, **kwargs: model  # no compilation in this test
+    try:
+        network = small_network(7)
+        optimizer = torch.optim.AdamW(network.parameters(), lr=0.0, weight_decay=0.0)
+
+        def policy_loss(boost: dict, plies_left: float) -> float:
+            # 4 king-captured positions with a huge policy loss and 4 other ones; the 8 positions of
+            # the second add() are the held-out validation set, so a batch is exactly the first 8
+            buffer = ReplayBuffer(16, (4, 7, 7), 1176, num_symmetries=1)
+            buffer.add(np.repeat(game.get_state()[None], 8, axis=0),
+                       np.array([1000.0 * policy] * 4 + [policy] * 4), np.ones(8), np.zeros(8),
+                       np.array([captured] * 4 + [0] * 4), np.full(8, plies_left))
+            buffer.add(np.repeat(game.get_state()[None], 8, axis=0), np.repeat(policy[None], 8, axis=0),
+                       np.ones(8), np.zeros(8), np.zeros(8), np.ones(8))
+            return train_network(network, buffer, optimizer, config, ending_boost=boost)['policy_loss']
+
+        plain = policy_loss({}, 1.0)
+        assert policy_loss({"encircled": 3.0}, 1.0) == plain  # no position has this ending
+        # Weights 3 and 1, divided by their mean 2: the boosted positions count 1.5x, the others
+        # 0.5x, also 50 plies before the end
+        for plies_left in (1.0, 50.0):
+            assert 1.45 < policy_loss({"king_captured": 3.0}, plies_left) / plain < 1.5
+        try:
+            policy_loss({"king_capture": 3.0}, 1.0)
+            assert False, "an unknown ending must raise ValueError"
+        except ValueError:
+            pass
+    finally:
+        torch.compile = original_compile
+    print("  ending boost: weights all positions of games with that ending; unknown names fail")
+    return True
+
+
 def test_self_play_targets():
     """Self-play must give every position of a game the game's ending and the number of plies from
     the position to the end, and return a game record with the final board."""
@@ -689,7 +732,7 @@ if __name__ == "__main__":
              test_temperature_and_time_limit, test_play_game_counts_last_ply_win,
              test_unarmed_king_does_not_capture, test_rollout_value_sign,
              test_load_compatible_keeps_player_plane, test_sim_balancer_band, test_replay_buffer_symmetries,
-             test_train_network_small_buffers, test_self_play_targets, test_mixed_search_sizes,
+             test_train_network_small_buffers, test_ending_boost, test_self_play_targets, test_mixed_search_sizes,
              test_temperature_floor, test_self_play_stops_workers,
              test_low_temperature_and_eval_mode,
              test_larger_board_networks, test_legal_move_cache,

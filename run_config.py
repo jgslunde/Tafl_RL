@@ -86,6 +86,8 @@ class TrainingConfig:
     dynamic_boost_min = 0.5           # Minimum boost factor
     dynamic_boost_max = 3.0           # Maximum boost factor
     attacker_win_loss_boost = 1.0     # Static boost (only used if use_dynamic_boosting=False)
+    ending_boost = {}                 # Loss weight of all positions of the games with an ending, by
+    ending_boost_until = 0            # tafl.ENDINGS name (e.g. {"exit_fort": 5.0}), up to this iteration
     draw_penalty_attacker = 0.0       # Draw value for attackers
     draw_penalty_defender = 0.0       # Draw value for defenders
 
@@ -171,7 +173,8 @@ SECTIONS: Dict[str, List[str]] = {
                  "use_stepping_lr", "lr_step_iterations", "lr_step_values", "weight_decay",
                  "value_loss_weight", "ending_loss_weight", "moves_left_loss_weight",
                  "use_dynamic_boosting", "dynamic_boost_alpha", "dynamic_boost_min",
-                 "dynamic_boost_max", "attacker_win_loss_boost", "draw_penalty_attacker",
+                 "dynamic_boost_max", "attacker_win_loss_boost", "ending_boost",
+                 "ending_boost_until", "draw_penalty_attacker",
                  "draw_penalty_defender"],
     "replay_buffer": ["replay_buffer_size", "min_buffer_size", "use_data_augmentation"],
     "evaluation": ["eval_games", "eval_min_elo", "eval_frequency", "eval_mcts_sims_attacker",

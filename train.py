@@ -23,7 +23,7 @@ import glob
 import shutil
 import socket
 from datetime import datetime
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import numpy as np
 import multiprocessing as mp
 from functools import partial
@@ -1141,7 +1141,8 @@ LOSS_KEYS = ['policy_loss', 'value_loss', 'ending_loss', 'moves_left_loss', 'l2_
 
 def train_network(network: nn.Module, buffer: ReplayBuffer,
                   optimizer: optim.Optimizer, config: TrainingConfig,
-                  attacker_boost: float = 1.0, defender_boost: float = 1.0) -> Dict[str, float]:
+                  attacker_boost: float = 1.0, defender_boost: float = 1.0,
+                  ending_boost: Optional[Dict[str, float]] = None) -> Dict[str, float]:
     """
     Train the neural network on samples from the replay buffer.
     
@@ -1156,7 +1157,9 @@ def train_network(network: nn.Module, buffer: ReplayBuffer,
         config: Training configuration
         attacker_boost: Loss boost factor for attacker-won games
         defender_boost: Loss boost factor for defender-won games
-    
+        ending_boost: Loss boost factor of all positions of the games with an ending, by
+                      tafl.ENDINGS name (endings left out: 1)
+
     Returns:
         dict (keys LOSS_KEYS) with the training losses '<name>_loss' (name: policy, value, ending,
         moves_left, total) averaged over all batches, 'policy_grad', 'value_grad', 'l2_loss', the
@@ -1224,6 +1227,11 @@ def train_network(network: nn.Module, buffer: ReplayBuffer,
     allowed_endings = torch.tensor([ending in config.rules.endings() for ending in ENDINGS],
                                    device=device)
     loss_names = ['policy', 'value', 'ending', 'moves_left', 'total']
+    ending_boost = ending_boost or {}
+    unknown = set(ending_boost) - set(ENDINGS)
+    if unknown:
+        raise ValueError(f"ending_boost: unknown endings {sorted(unknown)}; valid: {list(ENDINGS)}")
+    ending_boosts = torch.tensor([float(ending_boost.get(e, 1.0)) for e in ENDINGS], device=device)
 
     def batch_losses(batch) -> Dict[str, torch.Tensor]:
         """The mean losses (loss_names) of one batch from get_batch."""
@@ -1231,17 +1239,19 @@ def train_network(network: nn.Module, buffer: ReplayBuffer,
         pred_policies, pred_values, pred_endings, pred_moves_left = network_compiled(states)
         policy = -torch.sum(policies * torch.log_softmax(pred_policies, dim=1), dim=1)
         value = (pred_values.squeeze(1) - values) ** 2
-        # Boost factors: attacker-won games get attacker_boost, defender-won games defender_boost,
-        # draws 1, divided by the mean weight to keep the effective learning rate stable
-        if attacker_boost != 1.0 or defender_boost != 1.0:
-            weights = torch.where(winners == 0, attacker_boost,
-                                  torch.where(winners == 1, defender_boost, 1.0))
-            policy, value = policy * weights / weights.mean(), value * weights / weights.mean()
+        ending = F.cross_entropy(pred_endings.masked_fill(~allowed_endings, float('-inf')), endings,
+                                 reduction='none')
+        # Weights of the policy, value and ending losses: attacker-won games get attacker_boost,
+        # defender-won games defender_boost, draws 1, and every position also gets the boost of its
+        # game's ending. Divided by the mean weight to keep the effective learning rate stable.
+        weights = torch.where(winners == 0, attacker_boost,
+                              torch.where(winners == 1, defender_boost, 1.0))
+        weights = weights * ending_boosts[endings]
+        weights = weights / weights.mean()
         losses = {
-            'policy': policy.mean(),
-            'value': value.mean(),
-            'ending': F.cross_entropy(pred_endings.masked_fill(~allowed_endings, float('-inf')),
-                                      endings),
+            'policy': (policy * weights).mean(),
+            'value': (value * weights).mean(),
+            'ending': (ending * weights).mean(),
             # In units of MOVES_LEFT_SCALE plies: the squared error up to one unit, linear beyond
             # it, so that the rare very long games do not dominate
             'moves_left': F.huber_loss(pred_moves_left.squeeze(1) / MOVES_LEFT_SCALE,
@@ -2098,6 +2108,9 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
     else:
         print("Mode: Static")
         print(f"  Attacker boost: {config.attacker_win_loss_boost}x")
+    if config.ending_boost:
+        print(f"Ending boost up to and including iteration {config.ending_boost_until}: "
+              + ", ".join(f"{ending} {boost}x" for ending, boost in config.ending_boost.items()))
     print(f"Draw penalties: attacker={config.draw_penalty_attacker}, defender={config.draw_penalty_defender}")
     
     # Calculate training data statistics
@@ -2522,9 +2535,14 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
 
                 print(f"\n[2/4] Training network for {config.num_epochs} epochs...")
                 training_start = time.time()
+                # The ending boost is there to help the network discover an ending, so it stops
+                # after iteration ending_boost_until and later losses are not weighted by it
+                boost_on = iteration + 1 <= config.ending_boost_until
+                ending_boost = config.ending_boost if boost_on else {}
                 losses = train_network(network, replay_buffer, optimizer, config,
                                      attacker_boost=attacker_boost,
-                                     defender_boost=defender_boost)
+                                     defender_boost=defender_boost,
+                                     ending_boost=ending_boost)
                 training_time = time.time() - training_start
                 
                 print(f"Training time: {training_time:.1f}s")
