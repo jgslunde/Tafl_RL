@@ -407,9 +407,13 @@ def test_training_end_to_end():
             with torch.no_grad():
                 assert torch.allclose(loaded(x)[0], network.eval()(x)[0])
             export_to_onnx(loaded, os.path.join(tmp, "model.onnx"), 7, loaded.input_channels)
-            # Resuming works and keeps the config file
-            train(apply_overrides(config, ["self_play.num_iterations=3"]), resume_from=path)
-            assert os.path.exists(os.path.join(tmp, "checkpoint_iter_3.pth"))
+            # Resuming works and keeps the config file. With a growing gap between evaluations of
+            # int(0.5 x iteration), at least 1, they run at iterations 3 and 5 after 1 and 2.
+            history = train(apply_overrides(config, ["self_play.num_iterations=6",
+                                                     "evaluation.eval_interval_growth=0.5"]),
+                            resume_from=path)[2]
+            assert os.path.exists(os.path.join(tmp, "checkpoint_iter_6.pth"))
+            assert history["eval_iterations"] == [1, 2, 3, 5], history["eval_iterations"]
     finally:
         torch.compile = original_compile
     print("  end-to-end: self-play, training, gating, checkpoint, reload, ONNX export, resume")

@@ -534,7 +534,7 @@ def _play_self_play_game_worker(network_path, network_config, rules,
                                 add_dirichlet_noise, dirichlet_alpha, dirichlet_epsilon, fpu_reduction,
                                 track_unique_states=False, use_random_opening_moves=False, max_game_length=500,
                                 search_discount=1.0, full_search_share=1.0, cheap_search_sims=60,
-                                temperature_floor=0.0, root_fpu_reduction=None):
+                                temperature_floor=0.0, root_fpu_reduction=None, reuse_tree=False):
     """
     Worker function for parallel self-play game generation.
     Must be at module level for multiprocessing. Imports torch inside to avoid pickling issues.
@@ -564,6 +564,8 @@ def _play_self_play_game_worker(network_path, network_config, rules,
         cheap_search_sims: Simulations of the other moves (no noise, not stored)
         temperature_floor: Lowest temperature of any move, also after the schedule has ended
         root_fpu_reduction: FPU reduction at the root (None: fpu_reduction)
+        reuse_tree: Start each search from the subtree of the move just played, whose visits count
+                    toward the search's simulations
 
     Returns:
         dict with game data and MCTS timing information, or None if _stop_self_play was set
@@ -650,6 +652,7 @@ def _play_self_play_game_worker(network_path, network_config, rules,
                 # The random plies are not stored: the first MCTS move gives the first training sample
 
         king_left_throne = False  # for temperature_mode "king"
+        tree = None  # with reuse_tree: the searched subtree of the last move (shared by both sides)
         while not game.game_over:
             if _stop_self_play.is_set():
                 return None
@@ -711,7 +714,7 @@ def _play_self_play_game_worker(network_path, network_config, rules,
                 mcts.num_simulations = full_sims if full_search else cheap_search_sims
                 mcts.add_dirichlet_noise = add_dirichlet_noise and full_search
                 # Pass state_history for history planes support
-                visit_probs = mcts.search(game, state_history=state_history)
+                visit_probs = mcts.search(game, state_history=state_history, root=tree)
                 
                 # Convert to policy vector
                 policy_size = board_size * board_size * 4 * (board_size - 1)
@@ -751,11 +754,18 @@ def _play_self_play_game_worker(network_path, network_config, rules,
             
             game.make_move(move)
             move_count += 1
-            
+
+            # Keep the played move's subtree for the next search, if it was searched (not after the
+            # win-in-one shortcut, which ends the game anyway). Detached, the rest is freed.
+            tree = None
+            if reuse_tree and mate_in_1_move is None and mcts.root.children[move].visit_count > 0:
+                tree = mcts.root.children[move]
+                tree.parent = None
+
             # Update state history after the move
             if state_history is not None:
                 state_history.push(game.get_piece_planes())
-            
+
             # Move limit (a win on the last allowed ply still counts as a win)
             if move_count >= max_game_length and not game.game_over:
                 game._end(None, "move_limit")
@@ -887,7 +897,7 @@ def generate_self_play_data(agent: Agent, config: TrainingConfig, pool=None,
                         config.fpu_reduction, config.track_unique_states,
                         config.use_random_opening_moves, config.max_game_length, config.search_discount,
                         config.full_search_share, config.cheap_search_sims, config.temperature_floor,
-                        config.root_fpu_reduction)
+                        config.root_fpu_reduction, config.reuse_tree)
                        for game_idx in range(2 * config.num_games_per_iteration)]
 
         # Play games in parallel. imap_unordered with chunksize=1 hands out one game at a time, and once
@@ -1890,6 +1900,8 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
     print(f"  Self-play: {config.fpu_reduction}")
     if config.root_fpu_reduction is not None:
         print(f"  Self-play, at the root: {config.root_fpu_reduction}")
+    if config.reuse_tree:
+        print("Self-play search tree kept from move to move (kept visits count as simulations)")
     print(f"  Evaluation: {config.eval_fpu_reduction}")
     print(f"Temperature: {config.temperature}")
     print(f"Temperature mode: {config.temperature_mode}")
@@ -1989,6 +2001,8 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
     # Evaluation
     print("\n--- Evaluation ---")
     print(f"Eval frequency (network vs network): every {config.eval_frequency} iterations")
+    if config.eval_interval_growth > 0:
+        print(f"  or every {config.eval_interval_growth} x the iteration number, if that is more")
     print(f"Eval games (network vs network): {config.eval_games}")
     print(f"Elo gain needed to replace the best network: {config.eval_min_elo:+.0f}")
     print(f"Eval vs random frequency: every {config.eval_vs_random_frequency} iteration(s)")
@@ -2431,8 +2445,13 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
                 print(f"\n[3/4] Skipping random evaluation (every {config.eval_vs_random_frequency} iterations)")
                 eval_random_time = 0
             
-            # 4. Evaluate and update best network
-            if (iteration + 1) % config.eval_frequency == 0:
+            # 4. Evaluate and update best network. The gap between evaluations grows in proportion
+            # to the iteration (the Elo grows roughly like its logarithm), but is at least
+            # eval_frequency.
+            last_eval = (training_history['eval_iterations'] or [0])[-1]
+            eval_interval = max(config.eval_frequency,
+                                int(config.eval_interval_growth * (iteration + 1)))
+            if iteration + 1 - last_eval >= eval_interval:
                 print("\n[4/4] Evaluating new vs old network...")
                 eval_network_start = time.time()
                 score_rate, eval_games = evaluate_networks(network, best_network, config,
@@ -2468,7 +2487,8 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
                 training_history['cumulative_elo'].append(cumulative_elo)
                 print(f"Cumulative ELO (vs iteration 0): {cumulative_elo:+.1f}")
             else:
-                print(f"\n[4/4] Skipping network evaluation (every {config.eval_frequency} iterations)")
+                print(f"\n[4/4] Skipping network evaluation (next after {eval_interval} iterations "
+                      f"since the last one, at iteration {last_eval})")
                 eval_network_time = 0
             
             # Calculate total iteration time

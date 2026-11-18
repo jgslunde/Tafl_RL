@@ -49,6 +49,7 @@ class TrainingConfig:
     c_puct = 1.4                      # MCTS exploration constant for self-play
     fpu_reduction = -0.5              # First Play Urgency: reduction relative to parent Q-value
     root_fpu_reduction = None         # FPU reduction at the root of self-play searches (None = fpu_reduction)
+    reuse_tree = False                # Keep the played move's subtree for the next search (its visits count)
     search_discount = 1.0             # Search only: every value is multiplied by this per ply of backup (1.0 = none)
     temperature = 1.0                 # Sampling temperature for moves
     temperature_mode = "king"         # "fixed": drop at threshold, "king": drop when king leaves, "decay": linear
@@ -101,7 +102,8 @@ class TrainingConfig:
     eval_games = 20                   # Games for the gating match (new vs best network)
     eval_min_elo = 70.0               # Elo gain over the best network needed to replace it
                                       # (+70 = a 60 % score; with 128 games about 2 standard errors)
-    eval_frequency = 5                # Evaluate every N iterations
+    eval_frequency = 5                # Evaluate every N iterations (at least)
+    eval_interval_growth = 0.0        # Evaluate only every growth x iteration iterations, if more (0 = off)
     eval_mcts_sims_attacker = 100     # MCTS simulations for attacker in evaluation
     eval_mcts_sims_defender = 100     # MCTS simulations for defender in evaluation
     eval_c_puct = 1.4                 # MCTS exploration constant for evaluation
@@ -165,7 +167,7 @@ SECTIONS: Dict[str, List[str]] = {
     "game": ["ruleset", "max_game_length"],
     "self_play": ["num_iterations", "num_games_per_iteration", "num_mcts_sims_attacker",
                   "num_mcts_sims_defender", "full_search_share", "cheap_search_sims", "c_puct",
-                  "fpu_reduction", "root_fpu_reduction", "search_discount", "temperature",
+                  "fpu_reduction", "root_fpu_reduction", "reuse_tree", "search_discount", "temperature",
                   "temperature_mode", "temperature_threshold", "temperature_decay_moves",
                   "temperature_floor", "add_dirichlet_noise", "dirichlet_alpha", "dirichlet_epsilon", "use_random_opening_moves",
                   "use_dynamic_sim_balancing", "dynamic_sim_adjustment_rate", "dynamic_sim_min_win_rate",
@@ -178,7 +180,7 @@ SECTIONS: Dict[str, List[str]] = {
                  "ending_boost_until", "draw_penalty_attacker",
                  "draw_penalty_defender"],
     "replay_buffer": ["replay_buffer_size", "min_buffer_size", "use_data_augmentation"],
-    "evaluation": ["eval_games", "eval_min_elo", "eval_frequency", "eval_mcts_sims_attacker",
+    "evaluation": ["eval_games", "eval_min_elo", "eval_frequency", "eval_interval_growth", "eval_mcts_sims_attacker",
                    "eval_mcts_sims_defender", "eval_c_puct", "eval_fpu_reduction", "eval_temperature",
                    "eval_temperature_mode", "eval_temperature_threshold", "eval_temperature_decay_moves",
                    "eval_vs_random_games", "eval_vs_random_frequency"],

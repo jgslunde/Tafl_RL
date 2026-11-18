@@ -211,6 +211,37 @@ def test_root_fpu_reduction():
     return True
 
 
+def test_search_reuses_kept_root():
+    """A search from a kept root keeps its subtree, runs only the missing simulations, and adds
+    noise to the kept root's priors; a root for another position is refused."""
+    game = Tafl("brandubh_2")
+    mcts = MCTS(small_network(7), num_simulations=60)
+    calls = []
+    original_evaluate = mcts._evaluate
+    mcts._evaluate = lambda *args: calls.append(1) or original_evaluate(*args)
+    visits = mcts.search(game)
+    move = max(visits, key=visits.get)
+    kept = mcts.root.children[move]
+    kept.parent = None
+    kept_visits, priors = kept.visit_count, {m: c.prior for m, c in kept.children.items()}
+    assert kept_visits > 1
+    calls.clear()
+    np.random.seed(0)
+    mcts.add_dirichlet_noise = True
+    try:
+        mcts.search(game, root=kept)
+        raise AssertionError("a kept root for another position was accepted")
+    except AssertionError as error:
+        assert "another position" in str(error)
+    game.make_move(move)
+    mcts.search(game, root=kept)
+    assert mcts.root is kept and kept.visit_count == 60 and 0 < len(calls) <= 60 - kept_visits
+    assert any(abs(c.prior - priors[m]) > 1e-6 for m, c in kept.children.items()), "no noise"
+    assert abs(sum(c.prior for c in kept.children.values()) - 1) < 1e-6
+    print("  tree reuse: kept subtree, only the missing simulations, noise on the kept root")
+    return True
+
+
 def test_search_input_matches_training_state():
     """During search the network must see [current, previous, ...], like the stored training states."""
 
@@ -568,6 +599,36 @@ def test_mixed_search_sizes():
     return True
 
 
+def test_self_play_reuses_tree():
+    """With reuse_tree, self-play searches start from the played move's subtree (shared by both
+    sides, full and cheap searches) and stop at their simulation count, kept visits included."""
+    config = TrainingConfig()
+    config.num_games_per_iteration, config.num_workers, config.temp_dir = 1, 1, None
+    config.num_mcts_sims_attacker, config.num_mcts_sims_defender = 20, 30
+    config.full_search_share, config.cheap_search_sims = 0.5, 10
+    config.max_game_length, config.reuse_tree = 60, True
+    config.network = NetworkConfig(channels=8, blocks=["res"])
+    searches = []  # (simulations, kept visits, root visits after the search)
+    original_search = MCTS.search
+
+    def recording_search(self, game, root=None, **kwargs):
+        kept = 0 if root is None else root.visit_count
+        result = original_search(self, game, root=root, **kwargs)
+        searches.append((self.num_simulations, kept, self.root.visit_count))
+        return result
+
+    MCTS.search = recording_search
+    try:
+        moves_left = generate_self_play_data(Agent(TaflNet(config.network, 7)), config)[0][5]
+        assert sum(kept > 0 for _, kept, _ in searches) > len(searches) // 2
+        assert all(after == max(sims, kept) for sims, kept, after in searches)
+        assert np.all(np.diff(moves_left) < 0) and moves_left[-1] >= 1
+    finally:
+        MCTS.search = original_search
+    print("  tree reuse in self-play: searches continue from the kept subtree")
+    return True
+
+
 def test_temperature_floor():
     """Without a floor, self-play samples moves only while the temperature schedule runs (here the
     first 2 plies) and plays the top move after that; with a floor it samples every move."""
@@ -757,12 +818,13 @@ if __name__ == "__main__":
     print("Testing training-pipeline fixes...")
     tests = [test_augmentation_consistent, test_from_game_matches_tracked_history,
              test_evaluate_matches_masked_softmax, test_play_game_uses_rules, test_fpu_uses_parent_value,
-             test_root_fpu_reduction, test_search_input_matches_training_state, test_single_simulation_policy_is_finite,
+             test_root_fpu_reduction, test_search_reuses_kept_root,
+             test_search_input_matches_training_state, test_single_simulation_policy_is_finite,
              test_temperature_and_time_limit, test_play_game_counts_last_ply_win,
              test_unarmed_king_does_not_capture, test_rollout_value_sign,
              test_load_compatible_keeps_player_plane, test_sim_balancer_band, test_replay_buffer_symmetries,
              test_train_network_small_buffers, test_ending_boost, test_self_play_targets, test_mixed_search_sizes,
-             test_temperature_floor, test_self_play_stops_workers,
+             test_self_play_reuses_tree, test_temperature_floor, test_self_play_stops_workers,
              test_low_temperature_and_eval_mode,
              test_larger_board_networks, test_legal_move_cache,
              test_checkpoint_save_and_resume_history, test_gui_reads_checkpoint_settings]

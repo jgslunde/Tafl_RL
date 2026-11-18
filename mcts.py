@@ -283,7 +283,8 @@ class MCTS:
         return self.timing_stats.copy()
     
     def search(self, game: Tafl, state_history: Optional[StateHistory] = None,
-               time_limit: Optional[float] = None) -> Dict[Tuple, float]:
+               time_limit: Optional[float] = None,
+               root: Optional[MCTSNode] = None) -> Dict[Tuple, float]:
         """
         Run MCTS from the given game state.
 
@@ -294,14 +295,26 @@ class MCTS:
                           If None and history_length > 1, it is rebuilt from game.position_history.
                           If history_length == 1, this parameter is ignored.
             time_limit: If given, run simulations for this many seconds instead of num_simulations.
+            root: A node of an earlier search for this same position, without a parent (the child of
+                  the move played since). Its subtree is kept, and its visits count toward
+                  num_simulations. Noise, if on, is added to its priors.
 
         Returns:
-            dict mapping moves to visit probabilities
+            dict mapping moves to visit probabilities, kept visits included
         """
         import time
 
         t_start = t0 = time.perf_counter()
-        root = MCTSNode(game.clone())
+        if root is None:
+            root = MCTSNode(game.clone())
+        else:
+            assert root.parent is None, "a kept root must be detached from its parent"
+            same_position = (root.game.current_player == game.current_player
+                             and np.array_equal(root.game.board, game.board))
+            assert same_position, "the kept root is another position"
+            # A kept root has the plain network priors: noise is only ever added at the root
+            if self.add_dirichlet_noise:
+                self._add_dirichlet_noise_to_node(root)
         self.timing_stats['game_clone'] += time.perf_counter() - t0
         
         # Store root for later access to statistics
@@ -319,8 +332,11 @@ class MCTS:
         else:
             root_history = None  # No history tracking needed
         
-        # Run simulations: num_simulations of them, or as many as fit in time_limit seconds
-        num_simulations = self.num_simulations if time_limit is None else sys.maxsize
+        # Run simulations: num_simulations in total (kept visits included), or as many as fit in
+        # time_limit seconds
+        num_simulations = self.num_simulations - root.visit_count
+        if time_limit is not None:
+            num_simulations = sys.maxsize
         for sim_idx in range(num_simulations):
             if time_limit is not None and time.perf_counter() - t_start > time_limit:
                 break
@@ -373,7 +389,7 @@ class MCTS:
                 node.expand(policy_probs)
                 self.timing_stats['expansion'] += time.perf_counter() - t0
 
-                # Add Dirichlet noise to root node after first expansion
+                # Add Dirichlet noise to a new root after its expansion (a kept root got it above)
                 if sim_idx == 0 and node is root and self.add_dirichlet_noise:
                     self._add_dirichlet_noise_to_node(root)
 
