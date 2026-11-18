@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Time one network call (single thread) for the networks of run configs, as the self-play workers
-make it: batch 1, compiled kernels called from generated C++. This is the cost per search
-simulation that a network adds.
+Time one network call (single thread) for the networks of run configs: batch 1, with torch.compile
+and compiled kernels called from generated C++. This is roughly the cost per search simulation that
+a network adds. The self-play workers run the network with ONNX Runtime instead, which is about
+three times faster per call.
 
 Usage:
     python benchmark_network.py <run config.json> [<run config.json> ...] [--batch-size N]
