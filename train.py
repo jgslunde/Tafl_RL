@@ -534,7 +534,7 @@ def _play_self_play_game_worker(network_path, network_config, rules,
                                 add_dirichlet_noise, dirichlet_alpha, dirichlet_epsilon, fpu_reduction,
                                 track_unique_states=False, use_random_opening_moves=False, max_game_length=500,
                                 search_discount=1.0, full_search_share=1.0, cheap_search_sims=60,
-                                temperature_floor=0.0):
+                                temperature_floor=0.0, root_fpu_reduction=None):
     """
     Worker function for parallel self-play game generation.
     Must be at module level for multiprocessing. Imports torch inside to avoid pickling issues.
@@ -563,6 +563,7 @@ def _play_self_play_game_worker(network_path, network_config, rules,
                            stored for training
         cheap_search_sims: Simulations of the other moves (no noise, not stored)
         temperature_floor: Lowest temperature of any move, also after the schedule has ended
+        root_fpu_reduction: FPU reduction at the root (None: fpu_reduction)
 
     Returns:
         dict with game data and MCTS timing information, or None if _stop_self_play was set
@@ -592,11 +593,13 @@ def _play_self_play_game_worker(network_path, network_config, rules,
         mcts_attacker = MCTS(network, num_simulations=num_sims_attacker, c_puct=c_puct, device='cpu',
                             add_dirichlet_noise=add_dirichlet_noise, dirichlet_alpha=dirichlet_alpha,
                             dirichlet_epsilon=dirichlet_epsilon, fpu_reduction=fpu_reduction,
-                            search_discount=search_discount, feature_spec=feature_spec)
+                            search_discount=search_discount, feature_spec=feature_spec,
+                            root_fpu_reduction=root_fpu_reduction)
         mcts_defender = MCTS(network, num_simulations=num_sims_defender, c_puct=c_puct, device='cpu',
                             add_dirichlet_noise=add_dirichlet_noise, dirichlet_alpha=dirichlet_alpha,
                             dirichlet_epsilon=dirichlet_epsilon, fpu_reduction=fpu_reduction,
-                            search_discount=search_discount, feature_spec=feature_spec)
+                            search_discount=search_discount, feature_spec=feature_spec,
+                            root_fpu_reduction=root_fpu_reduction)
         mcts_attacker.reset_timing_stats()
         mcts_defender.reset_timing_stats()
 
@@ -883,7 +886,8 @@ def generate_self_play_data(agent: Agent, config: TrainingConfig, pool=None,
                         game_idx, config.add_dirichlet_noise, config.dirichlet_alpha, config.dirichlet_epsilon,
                         config.fpu_reduction, config.track_unique_states,
                         config.use_random_opening_moves, config.max_game_length, config.search_discount,
-                        config.full_search_share, config.cheap_search_sims, config.temperature_floor)
+                        config.full_search_share, config.cheap_search_sims, config.temperature_floor,
+                        config.root_fpu_reduction)
                        for game_idx in range(2 * config.num_games_per_iteration)]
 
         # Play games in parallel. imap_unordered with chunksize=1 hands out one game at a time, and once
@@ -1884,6 +1888,8 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
     print(f"  Evaluation: {config.eval_c_puct}")
     print(f"First Play Urgency (FPU) reduction:")
     print(f"  Self-play: {config.fpu_reduction}")
+    if config.root_fpu_reduction is not None:
+        print(f"  Self-play, at the root: {config.root_fpu_reduction}")
     print(f"  Evaluation: {config.eval_fpu_reduction}")
     print(f"Temperature: {config.temperature}")
     print(f"Temperature mode: {config.temperature_mode}")

@@ -29,7 +29,7 @@
     }
   },
   "self_play": {
-    "num_iterations": 1000,
+    "num_iterations": 500,
     "num_games_per_iteration": 512,
     "num_mcts_sims_attacker": 1000,
     "num_mcts_sims_defender": 1000,

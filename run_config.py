@@ -48,6 +48,7 @@ class TrainingConfig:
     cheap_search_sims = 60            # Simulations of a cheap search: no noise, position not stored for training
     c_puct = 1.4                      # MCTS exploration constant for self-play
     fpu_reduction = -0.5              # First Play Urgency: reduction relative to parent Q-value
+    root_fpu_reduction = None         # FPU reduction at the root of self-play searches (None = fpu_reduction)
     search_discount = 1.0             # Search only: every value is multiplied by this per ply of backup (1.0 = none)
     temperature = 1.0                 # Sampling temperature for moves
     temperature_mode = "king"         # "fixed": drop at threshold, "king": drop when king leaves, "decay": linear
@@ -164,7 +165,7 @@ SECTIONS: Dict[str, List[str]] = {
     "game": ["ruleset", "max_game_length"],
     "self_play": ["num_iterations", "num_games_per_iteration", "num_mcts_sims_attacker",
                   "num_mcts_sims_defender", "full_search_share", "cheap_search_sims", "c_puct",
-                  "fpu_reduction", "search_discount", "temperature",
+                  "fpu_reduction", "root_fpu_reduction", "search_discount", "temperature",
                   "temperature_mode", "temperature_threshold", "temperature_decay_moves",
                   "temperature_floor", "add_dirichlet_noise", "dirichlet_alpha", "dirichlet_epsilon", "use_random_opening_moves",
                   "use_dynamic_sim_balancing", "dynamic_sim_adjustment_rate", "dynamic_sim_min_win_rate",

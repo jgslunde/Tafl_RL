@@ -186,6 +186,31 @@ def test_fpu_uses_parent_value():
     return True
 
 
+def test_root_fpu_reduction():
+    """The search uses root_fpu_reduction at the root and fpu_reduction below it; without
+    root_fpu_reduction both are fpu_reduction."""
+    used = []  # (is the root, FPU reduction) of every selection step
+    original_select = MCTSNode.select_child
+
+    def recording_select(self, c_puct, fpu_reduction):
+        used.append((self.parent is None, fpu_reduction))
+        return original_select(self, c_puct, fpu_reduction)
+
+    MCTSNode.select_child = recording_select
+    try:
+        for root_fpu, expected_root in [(0.0, 0.0), (None, -0.3)]:
+            used.clear()
+            mcts = MCTS(small_network(7), num_simulations=30, fpu_reduction=-0.3,
+                        root_fpu_reduction=root_fpu)
+            mcts.search(Tafl("brandubh_2"))
+            assert {fpu for is_root, fpu in used if is_root} == {expected_root}
+            assert {fpu for is_root, fpu in used if not is_root} == {-0.3}
+    finally:
+        MCTSNode.select_child = original_select
+    print("  FPU: root_fpu_reduction at the root, fpu_reduction below")
+    return True
+
+
 def test_search_input_matches_training_state():
     """During search the network must see [current, previous, ...], like the stored training states."""
 
@@ -732,7 +757,7 @@ if __name__ == "__main__":
     print("Testing training-pipeline fixes...")
     tests = [test_augmentation_consistent, test_from_game_matches_tracked_history,
              test_evaluate_matches_masked_softmax, test_play_game_uses_rules, test_fpu_uses_parent_value,
-             test_search_input_matches_training_state, test_single_simulation_policy_is_finite,
+             test_root_fpu_reduction, test_search_input_matches_training_state, test_single_simulation_policy_is_finite,
              test_temperature_and_time_limit, test_play_game_counts_last_ply_win,
              test_unarmed_king_does_not_capture, test_rollout_value_sign,
              test_load_compatible_keeps_player_plane, test_sim_balancer_band, test_replay_buffer_symmetries,

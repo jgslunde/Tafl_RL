@@ -213,7 +213,8 @@ class MCTS:
                  dirichlet_epsilon: float = 0.25, add_dirichlet_noise: bool = False,
                  fpu_reduction: float = -0.5,
                  search_discount: float = 1.0, history_length: int = 1,
-                 feature_spec: Optional[FeatureSpec] = None):
+                 feature_spec: Optional[FeatureSpec] = None,
+                 root_fpu_reduction: Optional[float] = None):
         """
         Initialize MCTS.
         
@@ -236,6 +237,9 @@ class MCTS:
             feature_spec: The input planes the network expects (features.FeatureSpec). Networks
                           built by tafl_network carry it as network.feature_spec. Default: the
                           piece planes of `history_length` positions and the player plane.
+            root_fpu_reduction: The FPU reduction at the root only (None: fpu_reduction). With root
+                                noise, a milder value at the root keeps the noise-favoured moves
+                                visited while the tree below searches deeper.
         """
         self.network = network
         # Inference needs the BatchNorm running statistics; in training mode every search would use
@@ -248,6 +252,7 @@ class MCTS:
         self.dirichlet_epsilon = dirichlet_epsilon
         self.add_dirichlet_noise = add_dirichlet_noise
         self.fpu_reduction = fpu_reduction
+        self.root_fpu_reduction = fpu_reduction if root_fpu_reduction is None else root_fpu_reduction
         self.search_discount = search_discount
         if feature_spec is None:
             feature_spec = FeatureSpec(history_length=history_length)
@@ -332,7 +337,8 @@ class MCTS:
             # expand() leaves a node without legal moves unexpanded (such a node is terminal).
             t0 = time.perf_counter()
             while not node.is_leaf() and not node.is_terminal():
-                action, node = node.select_child(self.c_puct, self.fpu_reduction)
+                fpu_reduction = self.root_fpu_reduction if node is root else self.fpu_reduction
+                action, node = node.select_child(self.c_puct, fpu_reduction)
                 search_path.append(node)
 
                 # Update history with the new state after the action
