@@ -38,7 +38,7 @@ def play_single_game_worker(game_idx, checkpoint1_path, checkpoint2_path, agent1
     """
     Worker function for playing a single game in a separate process.
     Each agent searches with the search_discount its network was trained with (from its checkpoint).
-    The game is a draw once more than max_moves plies have been played.
+    The game is a draw once max_moves plies have been played.
     Returns tuple: (agent1_won, winner_role, move_count)
     """
     try:
@@ -160,7 +160,7 @@ def play_game_between_agents(agent1, agent2, rules, display=True, temperature=0.
         temperature: Temperature for move selection (0=deterministic)
         time_per_move: Optional time limit per move in seconds (if None, uses simulations)
         temperature_threshold: Move number after which temperature drops to 0 (default: 999)
-        max_moves: The game is a draw once more than this many plies have been played
+        max_moves: The game is a draw once this many plies have been played
     
     Returns:
         winner: 0 for Attackers, 1 for Defenders, None for draw
@@ -215,9 +215,9 @@ def play_game_between_agents(agent1, agent2, rules, display=True, temperature=0.
             print("\n")
         
         # Move limit (a win on the last allowed ply still counts as a win)
-        if move_count > max_moves and not game.game_over:
+        if move_count >= max_moves and not game.game_over:
             if display:
-                print(f"Game exceeded {max_moves} moves - draw by move limit")
+                print(f"Game reached {max_moves} plies - draw by move limit")
             game._end(None, "move_limit")
             break
     
@@ -256,7 +256,7 @@ def play_multiple_games(agent1, agent2, rules, num_games=10, alternate_colors=Tr
         checkpoint1_path: Path to checkpoint1 (required for multiprocessing)
         checkpoint2_path: Path to checkpoint2 (required for multiprocessing)
         simulations: Number of MCTS simulations (required for multiprocessing)
-        max_moves: The game is a draw once more than this many plies have been played
+        max_moves: The game is a draw once this many plies have been played
         dirichlet_noise, dirichlet_alpha: Root noise for the agents built in worker processes
                                           (the agents passed in already carry their own settings)
     """
@@ -522,7 +522,7 @@ def main():
     parser.add_argument("--time-per-move", type=float, default=None,
                        help="Time limit per move in seconds (overrides --simulations if specified)")
     parser.add_argument("--max-moves", type=int, default=None,
-                       help="A game is a draw once more than this many plies have been played "
+                       help="A game is a draw once this many plies have been played "
                             "(default: the draw limit of checkpoint 1's training run)")
     parser.add_argument("--display", action="store_true",
                        help="Display board state during play (default: shown for single game, hidden for multiple games)")

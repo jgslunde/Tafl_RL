@@ -19,9 +19,7 @@ import os
 import sys
 import time
 import json
-import glob
-import shutil
-import socket
+import tempfile
 from datetime import datetime
 from typing import List, Tuple, Dict, Optional
 import numpy as np
@@ -41,6 +39,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from agent import Agent
+from convert_to_onnx import OnnxNet, export_to_onnx
 from features import StateHistory, build_features
 from network_config import NetworkConfig
 from run_config import TrainingConfig, save_config  # TrainingConfig lives in run_config.py (JSON form there)
@@ -532,7 +531,7 @@ def _play_self_play_game_worker_wrapper(args):
 def _play_self_play_game_worker(network_path, network_config, rules,
                                 num_sims_attacker, num_sims_defender, c_puct, temperature, temperature_mode,
                                 temperature_threshold, temperature_decay_moves, game_idx,
-                                add_dirichlet_noise, dirichlet_alpha, dirichlet_epsilon, fpu_reduction, temp_dir=None,
+                                add_dirichlet_noise, dirichlet_alpha, dirichlet_epsilon, fpu_reduction,
                                 track_unique_states=False, use_random_opening_moves=False, max_game_length=500,
                                 search_discount=1.0, full_search_share=1.0, cheap_search_sims=60,
                                 temperature_floor=0.0):
@@ -541,7 +540,7 @@ def _play_self_play_game_worker(network_path, network_config, rules,
     Must be at module level for multiprocessing. Imports torch inside to avoid pickling issues.
 
     Args:
-        network_path: Path to saved network weights file
+        network_path: ONNX file of the network (see _export_for_workers)
         network_config: NetworkConfig.to_dict() of the network (architecture and input planes)
         rules: the rule set (tafl.Rules)
         num_sims_attacker: MCTS simulations per move for attacker
@@ -556,7 +555,6 @@ def _play_self_play_game_worker(network_path, network_config, rules,
         dirichlet_alpha: Concentration parameter for Dirichlet noise
         dirichlet_epsilon: Weight of Dirichlet noise (0-1)
         fpu_reduction: First Play Urgency reduction relative to parent Q-value
-        temp_dir: Temporary directory for worker files
         track_unique_states: If True, collect state hashes for diversity analysis
         use_random_opening_moves: If True, 50% of games start with 1-4 random moves (2-8 ply)
         max_game_length: Maximum number of moves before declaring draw
@@ -581,49 +579,14 @@ def _play_self_play_game_worker(network_path, network_config, rules,
 
         # Set torch to use only 1 thread per worker to avoid conflicts
         torch.set_num_threads(1)
-        # Compile in this process. The Inductor compile thread pool inherited from the parent does not
-        # survive the fork: if the parent already used it (torch.compile during training), jobs
-        # submitted to it never run and the worker hangs.
-        from torch._inductor import config as inductor_config
-        inductor_config.compile_threads = 1
-        # Call the compiled kernels from generated C++ instead of Python: 0.3-0.4 ms (13-24 %) less
-        # per batch-1 network call and about half the compile time, with identical results
-        inductor_config.cpp_wrapper = True
 
-        # Set up temp directory for this worker
-        import tempfile
-        if temp_dir is not None:
-            # Use specified temp directory (e.g., RAM disk)
-            os.environ['TMPDIR'] = temp_dir
-            os.environ['TEMP'] = temp_dir
-            os.environ['TMP'] = temp_dir
-            base_temp_dir = temp_dir
-        else:
-            base_temp_dir = tempfile.gettempdir()
-        
-        # Set per-worker compilation cache to avoid lock contention
-        # Each worker gets its own cache directory
-        worker_cache_dir = os.path.join(base_temp_dir,
-                                        f'torchinductor_{socket.gethostname()}_{os.getpid()}')
-        os.environ['TORCHINDUCTOR_CACHE_DIR'] = worker_cache_dir
-        
-        # Network architecture and input planes from the config
+        # Network input planes from the config
         board_size = rules.board_size
-        net_config = NetworkConfig.from_dict(network_config)
-        feature_spec = net_config.features
+        feature_spec = NetworkConfig.from_dict(network_config).features
 
         from mcts import MCTS
 
-        # Reconstruct network on CPU and load from file
-        network = TaflNet(net_config, board_size)
-        checkpoint = torch.load(network_path, map_location='cpu', weights_only=False)
-        load_weights(network, checkpoint)
-        network.to('cpu')
-        network.eval()
-
-        # Optimize for CPU inference with compilation for 2.5-2.75x speedup
-        # Each worker has its own cache directory, so no contention
-        network = network.optimize_for_inference(use_compile=True, compile_mode='default')
+        network = OnnxNet(network_path)
 
         # Create MCTS instances for each player (with different simulation counts)
         mcts_attacker = MCTS(network, num_simulations=num_sims_attacker, c_puct=c_puct, device='cpu',
@@ -791,7 +754,7 @@ def _play_self_play_game_worker(network_path, network_config, rules,
                 state_history.push(game.get_piece_planes())
             
             # Move limit (a win on the last allowed ply still counts as a win)
-            if move_count > max_game_length and not game.game_over:
+            if move_count >= max_game_length and not game.game_over:
                 game._end(None, "move_limit")
 
         # Combine timing stats from both MCTS instances
@@ -863,7 +826,21 @@ def _play_self_play_game_worker(network_path, network_config, rules,
         raise RuntimeError(error_msg)
 
 
-def generate_self_play_data(agent: Agent, config: TrainingConfig, pool=None, temp_network_path=None,
+def _export_for_workers(network: nn.Module, config: TrainingConfig) -> str:
+    """Export the network to a temporary ONNX file in config.temp_dir, which the workers run.
+
+    The caller deletes the file. Exporting a copy leaves the training network unchanged.
+    """
+    copy = TaflNet(config.network, config.board_size)
+    copy.load_state_dict(clean_state_dict(network.state_dict()))
+    copy.eval()
+    with tempfile.NamedTemporaryFile(suffix='.onnx', delete=False, dir=config.temp_dir) as f:
+        path = f.name
+    export_to_onnx(copy, path, config.board_size, config.network.features.num_planes, verbose=False)
+    return path
+
+
+def generate_self_play_data(agent: Agent, config: TrainingConfig, pool=None,
                            attacker_sims: int = None,
                            defender_sims: int = None) -> Tuple[Tuple, List[dict], dict]:
     """
@@ -875,7 +852,6 @@ def generate_self_play_data(agent: Agent, config: TrainingConfig, pool=None, tem
         config: Training configuration
         pool: Optional multiprocessing pool to use (if None, creates temporary pool). It is closed at
               the end (its workers exit), so the caller must create a new one.
-        temp_network_path: Path to temporary network file (avoids pickling large tensors)
         attacker_sims: Override for attacker simulation count (uses config value if None)
         defender_sims: Override for defender simulation count (uses config value if None)
 
@@ -896,36 +872,16 @@ def generate_self_play_data(agent: Agent, config: TrainingConfig, pool=None, tem
     if attacker_sims is not None or defender_sims is not None:
         print(f"  Using dynamic simulation counts: Attacker {num_sims_attacker}, Defender {num_sims_defender}")
     
-    # Save network to temporary file to avoid pickling issues with many workers
-    import tempfile
-    
-    # Use configured temp directory if specified
-    if config.temp_dir is not None:
-        temp_base_dir = config.temp_dir
-    else:
-        temp_base_dir = tempfile.gettempdir()
-    
-    if temp_network_path is None:
-        temp_file = tempfile.NamedTemporaryFile(mode='wb', suffix='.pth', delete=False, dir=temp_base_dir)
-        temp_network_path = temp_file.name
-        temp_file.close()
-        # Save as checkpoint format (workers expect 'model_state_dict' key)
-        # Strip _orig_mod. prefix if network is compiled (torch.compile adds this)
-        checkpoint = {'model_state_dict': clean_state_dict(agent.network.state_dict())}
-        torch.save(checkpoint, temp_network_path)
-        cleanup_temp_file = True
-    else:
-        cleanup_temp_file = False
-    
+    network_path = _export_for_workers(agent.network, config)
     try:
         # Worker arguments for up to 2 * num_games_per_iteration games (only the first N finished are used)
         network_config = config.network.to_dict()
-        worker_args = [(temp_network_path, network_config, config.rules,
+        worker_args = [(network_path, network_config, config.rules,
                         num_sims_attacker, num_sims_defender,
                         config.c_puct, config.temperature, config.temperature_mode,
                         config.temperature_threshold, config.temperature_decay_moves,
                         game_idx, config.add_dirichlet_noise, config.dirichlet_alpha, config.dirichlet_epsilon,
-                        config.fpu_reduction, config.temp_dir, config.track_unique_states,
+                        config.fpu_reduction, config.track_unique_states,
                         config.use_random_opening_moves, config.max_game_length, config.search_discount,
                         config.full_search_share, config.cheap_search_sims, config.temperature_floor)
                        for game_idx in range(2 * config.num_games_per_iteration)]
@@ -972,12 +928,7 @@ def generate_self_play_data(agent: Agent, config: TrainingConfig, pool=None, tem
         else:
             game_results = [_play_self_play_game_worker(*args) for args in worker_args[:config.num_games_per_iteration]]
     finally:
-        # Clean up temporary file
-        if cleanup_temp_file:
-            try:
-                os.unlink(temp_network_path)
-            except Exception:
-                pass
+        os.unlink(network_path)
     
     # MCTS timing aggregation
     mcts_timing_totals = {
@@ -1005,12 +956,11 @@ def generate_self_play_data(agent: Agent, config: TrainingConfig, pool=None, tem
         # Get mate-in-1 flags if present
         mate_in_1_flags = game_data.get('mate_in_1_flags', [False] * len(game_data['states']))
         
-        # Compute time-weighted discount factors for each position
-        # discount[i] = reward_discount^(num_moves - 1 - i) where i is position index
-        # Last move gets discount=1.0, earlier moves get increasingly discounted
+        # Discount per ply to the end of the game: the position before the last move gets 1.0. It
+        # counts plies, not stored positions, since cheap-search moves are not stored.
         num_positions = len(game_data['states'])
-        gamma = config.reward_discount
-        discount_factors = [gamma ** (num_positions - 1 - i) for i in range(num_positions)]
+        discount_factors = [config.reward_discount ** (game_data['num_moves'] - 1 - ply)
+                            for ply in game_data['plies']]
         
         # Add to buffer
         for i, (state, policy, player, is_mate_in_1) in enumerate(zip(game_data['states'], 
@@ -1406,34 +1356,13 @@ def _evaluate_vs_random_worker(network_path, network_config, rules,
 
     # Set torch to use only 1 thread per worker to avoid conflicts
     torch.set_num_threads(1)
-    # Compile in this process; the inherited Inductor compile thread pool can hang after fork. C++
-    # wrapper for faster calls (both as in _play_self_play_game_worker)
-    from torch._inductor import config as inductor_config
-    inductor_config.compile_threads = 1
-    inductor_config.cpp_wrapper = True
 
-    # Set per-worker compilation cache to avoid lock contention
-    # Each worker gets its own cache directory, so no delays needed
-    import tempfile
-    worker_cache_dir = os.path.join(tempfile.gettempdir(),
-                                    f'torchinductor_{socket.gethostname()}_{os.getpid()}')
-    os.environ['TORCHINDUCTOR_CACHE_DIR'] = worker_cache_dir
-    
-    # Network architecture and input planes from the config
+    # Network input planes from the config
     net_config = NetworkConfig.from_dict(network_config)
 
     from agent import Agent, RandomAgent, play_game
 
-    # Reconstruct network on CPU and load from file
-    network = TaflNet(net_config, rules.board_size)
-    checkpoint = torch.load(network_path, map_location='cpu', weights_only=False)
-    load_weights(network, checkpoint)
-    network.to('cpu')
-    network.eval()
-
-    # Optimize for CPU inference with compilation for 2.5-2.75x speedup
-    # Each worker has its own cache directory, so no contention
-    network = network.optimize_for_inference(use_compile=True, compile_mode='default')
+    network = OnnxNet(network_path)
 
     # Determine which simulations to use based on NN's role
     num_simulations = num_sims_attacker if nn_plays_attacker else num_sims_defender
@@ -1480,7 +1409,7 @@ def calculate_elo_difference(win_rate: float) -> float:
 
 
 def evaluate_vs_random(network: nn.Module, config: TrainingConfig,
-                       num_games: int = 10, pool=None, temp_network_path=None) -> Dict[str, float]:
+                       num_games: int = 10, pool=None) -> Dict[str, float]:
     """
     Evaluate network against random player.
     Uses multiprocessing to parallelize evaluation games.
@@ -1490,8 +1419,7 @@ def evaluate_vs_random(network: nn.Module, config: TrainingConfig,
         config: training configuration
         num_games: number of games to play (will play num_games as each color)
         pool: Optional multiprocessing pool to use (if None, creates temporary pool)
-        temp_network_path: Path to temporary network file (avoids pickling large tensors)
-    
+
     Returns:
         dict with 'total_wins', 'total_draws', 'total_losses', 'total_games',
         'win_rate' (score rate where draws = 0.5), 'elo_diff',
@@ -1500,27 +1428,14 @@ def evaluate_vs_random(network: nn.Module, config: TrainingConfig,
     """
     print(f"\nEvaluating vs Random player ({num_games * 2} games using {config.num_workers} workers)...")
     
-    # Save network to temporary file to avoid pickling issues with many workers
-    import tempfile
-    if temp_network_path is None:
-        temp_file = tempfile.NamedTemporaryFile(mode='wb', suffix='.pth', delete=False)
-        temp_network_path = temp_file.name
-        temp_file.close()
-        # Save as checkpoint format (workers expect 'model_state_dict' key)
-        # Strip _orig_mod. prefix if network is compiled (torch.compile adds this)
-        checkpoint = {'model_state_dict': clean_state_dict(network.state_dict())}
-        torch.save(checkpoint, temp_network_path)
-        cleanup_temp_file = True
-    else:
-        cleanup_temp_file = False
-    
+    network_path = _export_for_workers(network, config)
     # Evaluation games use the same rules and draw limit as self-play
     try:
         # Create worker functions with partial for attacker and defender games
         network_config = config.network.to_dict()
         worker_func_attacker = partial(
             _evaluate_vs_random_worker,
-            temp_network_path,
+            network_path,
             network_config,
             config.rules,
             config.eval_mcts_sims_attacker,
@@ -1534,7 +1449,7 @@ def evaluate_vs_random(network: nn.Module, config: TrainingConfig,
 
         worker_func_defender = partial(
             _evaluate_vs_random_worker,
-            temp_network_path,
+            network_path,
             network_config,
             config.rules,
             config.eval_mcts_sims_attacker,
@@ -1566,12 +1481,7 @@ def evaluate_vs_random(network: nn.Module, config: TrainingConfig,
             attacker_results = [worker_func_attacker(i) for i in range(num_games)]
             defender_results = [worker_func_defender(i) for i in range(num_games)]
     finally:
-        # Clean up temporary file
-        if cleanup_temp_file:
-            try:
-                os.unlink(temp_network_path)
-            except Exception:
-                pass
+        os.unlink(network_path)
     
     # Process results: the network's score per game, 1.0 = win, 0.5 = draw, 0.0 = loss
     games = attacker_results + defender_results
@@ -1618,15 +1528,15 @@ def evaluate_vs_random(network: nn.Module, config: TrainingConfig,
 def _evaluate_networks_worker(new_network_path, old_network_path,
                              network_config, rules, num_sims_attacker, num_sims_defender, c_puct,
                              new_plays_attacker,
-                             game_idx, temperature, temperature_mode, temperature_threshold, temperature_decay_moves, fpu_reduction, temp_dir=None,
+                             game_idx, temperature, temperature_mode, temperature_threshold, temperature_decay_moves, fpu_reduction,
                              max_moves=500, search_discount=1.0):
     """
     Worker function for parallel network evaluation.
     Must be at module level for multiprocessing. Imports inside to avoid pickling issues.
 
     Args:
-        new_network_path: Path to saved new network weights file
-        old_network_path: Path to saved old network weights file
+        new_network_path: ONNX file of the new network (see _export_for_workers)
+        old_network_path: ONNX file of the old network
         network_config: NetworkConfig.to_dict() of both networks
         rules: the rule set (tafl.Rules, the same as in self-play)
         num_sims_attacker: MCTS simulations per move for attacker
@@ -1651,53 +1561,14 @@ def _evaluate_networks_worker(new_network_path, old_network_path,
 
     # Set torch to use only 1 thread per worker to avoid conflicts
     torch.set_num_threads(1)
-    # Compile in this process; the inherited Inductor compile thread pool can hang after fork. C++
-    # wrapper for faster calls (both as in _play_self_play_game_worker)
-    from torch._inductor import config as inductor_config
-    inductor_config.compile_threads = 1
-    inductor_config.cpp_wrapper = True
 
-    # Set up temp directory for this worker
-    import tempfile
-    if temp_dir is not None:
-        # Use specified temp directory (e.g., RAM disk)
-        os.environ['TMPDIR'] = temp_dir
-        os.environ['TEMP'] = temp_dir
-        os.environ['TMP'] = temp_dir
-        base_temp_dir = temp_dir
-    else:
-        base_temp_dir = tempfile.gettempdir()
-    
-    # Set per-worker compilation cache to avoid lock contention
-    # Each worker gets its own cache directory
-    worker_cache_dir = os.path.join(base_temp_dir,
-                                    f'torchinductor_{socket.gethostname()}_{os.getpid()}')
-    os.environ['TORCHINDUCTOR_CACHE_DIR'] = worker_cache_dir
-    
-    # Network architecture and input planes from the config
+    # Network input planes from the config
     net_config = NetworkConfig.from_dict(network_config)
 
     from agent import Agent, play_game
 
-    # Reconstruct networks on CPU and load from files
-    new_network = TaflNet(net_config, rules.board_size)
-    checkpoint = torch.load(new_network_path, map_location='cpu', weights_only=False)
-    load_weights(new_network, checkpoint)
-    new_network.to('cpu')
-    new_network.eval()
-
-    # Optimize for CPU inference with compilation for 2.5-2.75x speedup
-    # Each worker has its own cache directory, so no contention
-    new_network = new_network.optimize_for_inference(use_compile=True, compile_mode='default')
-
-    old_network = TaflNet(net_config, rules.board_size)
-    checkpoint = torch.load(old_network_path, map_location='cpu', weights_only=False)
-    load_weights(old_network, checkpoint)
-    old_network.to('cpu')
-    old_network.eval()
-
-    # Optimize for CPU inference with compilation for 2.5-2.75x speedup
-    old_network = old_network.optimize_for_inference(use_compile=True, compile_mode='default')
+    new_network = OnnxNet(new_network_path)
+    old_network = OnnxNet(old_network_path)
 
     # Determine simulations based on roles
     # Both agents use role-appropriate simulation counts
@@ -1722,8 +1593,7 @@ def _evaluate_networks_worker(new_network_path, old_network_path,
 
 
 def evaluate_networks(new_network: nn.Module, old_network: nn.Module,
-                     config: TrainingConfig, pool=None, temp_new_path=None,
-                     temp_old_path=None) -> Tuple[float, List[dict]]:
+                     config: TrainingConfig, pool=None) -> Tuple[float, List[dict]]:
     """
     Evaluate new network against old network.
     Uses multiprocessing to parallelize evaluation games.
@@ -1733,8 +1603,6 @@ def evaluate_networks(new_network: nn.Module, old_network: nn.Module,
         old_network: Old network to compare against
         config: Training configuration
         pool: Optional multiprocessing pool to use (if None, creates temporary pool)
-        temp_new_path: Path to temporary new network file (avoids pickling large tensors)
-        temp_old_path: Path to temporary old network file (avoids pickling large tensors)
     
     Returns:
         score_rate: score as fraction (wins + 0.5 * draws) / total_games
@@ -1742,39 +1610,8 @@ def evaluate_networks(new_network: nn.Module, old_network: nn.Module,
     """
     print(f"\nEvaluating new network vs old network ({config.eval_games} games using {config.num_workers} workers)...")
     
-    # Save networks to temporary files to avoid pickling issues with many workers
-    import tempfile
-    
-    # Use configured temp directory if specified
-    if config.temp_dir is not None:
-        temp_base_dir = config.temp_dir
-    else:
-        temp_base_dir = tempfile.gettempdir()
-    
-    if temp_new_path is None:
-        temp_file = tempfile.NamedTemporaryFile(mode='wb', suffix='_new.pth', delete=False, dir=temp_base_dir)
-        temp_new_path = temp_file.name
-        temp_file.close()
-        # Save as checkpoint format (workers expect 'model_state_dict' key)
-        # Strip _orig_mod. prefix if network is compiled (torch.compile adds this)
-        checkpoint = {'model_state_dict': clean_state_dict(new_network.state_dict())}
-        torch.save(checkpoint, temp_new_path)
-        cleanup_new = True
-    else:
-        cleanup_new = False
-    
-    if temp_old_path is None:
-        temp_file = tempfile.NamedTemporaryFile(mode='wb', suffix='_old.pth', delete=False, dir=temp_base_dir)
-        temp_old_path = temp_file.name
-        temp_file.close()
-        # Save as checkpoint format (workers expect 'model_state_dict' key)
-        # Strip _orig_mod. prefix if network is compiled (torch.compile adds this)
-        checkpoint = {'model_state_dict': clean_state_dict(old_network.state_dict())}
-        torch.save(checkpoint, temp_old_path)
-        cleanup_old = True
-    else:
-        cleanup_old = False
-    
+    new_path = _export_for_workers(new_network, config)
+    old_path = _export_for_workers(old_network, config)
     try:
         # Create worker function with partial - alternates who plays attacker based on game index
         # Game indices 0, 2, 4, ... have new network as attacker
@@ -1789,8 +1626,8 @@ def evaluate_networks(new_network: nn.Module, old_network: nn.Module,
         network_config = config.network.to_dict()
         worker_func_new_attacker = partial(
             _evaluate_networks_worker,
-            temp_new_path,
-            temp_old_path,
+            new_path,
+            old_path,
             network_config,
             config.rules,
             config.eval_mcts_sims_attacker,
@@ -1804,15 +1641,14 @@ def evaluate_networks(new_network: nn.Module, old_network: nn.Module,
             temperature_threshold=config.eval_temperature_threshold,
             temperature_decay_moves=config.eval_temperature_decay_moves,
             fpu_reduction=config.eval_fpu_reduction,
-            temp_dir=config.temp_dir,
             max_moves=config.max_game_length,
             search_discount=config.search_discount
         )
 
         worker_func_new_defender = partial(
             _evaluate_networks_worker,
-            temp_new_path,
-            temp_old_path,
+            new_path,
+            old_path,
             network_config,
             config.rules,
             config.eval_mcts_sims_attacker,
@@ -1826,7 +1662,6 @@ def evaluate_networks(new_network: nn.Module, old_network: nn.Module,
             temperature_threshold=config.eval_temperature_threshold,
             temperature_decay_moves=config.eval_temperature_decay_moves,
             fpu_reduction=config.eval_fpu_reduction,
-            temp_dir=config.temp_dir,
             max_moves=config.max_game_length,
             search_discount=config.search_discount
         )
@@ -1850,17 +1685,8 @@ def evaluate_networks(new_network: nn.Module, old_network: nn.Module,
             results = [worker_func_new_attacker(i) for i in range(half_games + remainder)]
             results += [worker_func_new_defender(i) for i in range(half_games)]
     finally:
-        # Clean up temporary files
-        if cleanup_new:
-            try:
-                os.unlink(temp_new_path)
-            except Exception:
-                pass
-        if cleanup_old:
-            try:
-                os.unlink(temp_old_path)
-            except Exception:
-                pass
+        os.unlink(new_path)
+        os.unlink(old_path)
     
     # Process results - split by attacker/defender. Scores: 1.0 = win, 0.5 = draw, 0.0 = loss
     attacker_results = results[:half_games + remainder]
@@ -2447,16 +2273,6 @@ def train(config: TrainingConfig, resume_from: str = None, load_weights_from: st
             print(f"Iteration {iteration + 1}/{config.num_iterations} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             print("=" * 70)
             
-            # Remove the Inductor cache folders of worker processes that have exited (each worker
-            # writes one folder named after its host and PID, see _play_self_play_game_worker);
-            # otherwise they pile up in temp_dir. Only this host's folders are checked: /proc says
-            # nothing about other hosts' PIDs.
-            own_cache_dirs = os.path.join(temp_dir_path, f'torchinductor_{socket.gethostname()}_*')
-            for cache_dir in glob.glob(own_cache_dirs):
-                pid = cache_dir.rsplit('_', 1)[-1]
-                if pid.isdigit() and not os.path.exists(f'/proc/{pid}'):
-                    shutil.rmtree(cache_dir, ignore_errors=True)
-
             # Recreate worker pool (self-play terminates it at the end of each iteration)
             if config.num_workers > 1 and worker_pool is None:
                 print(f"Recreating worker pool with {config.num_workers} workers...")

@@ -251,12 +251,12 @@ def test_temperature_and_time_limit():
 def test_play_game_counts_last_ply_win():
     """A king capture on the last allowed ply must count as an attacker win, not as a draw."""
     start = {(3, 3): KING, (3, 1): ATTACKER, (1, 4): ATTACKER, (5, 0): ATTACKER, (6, 5): DEFENDER}
-    # Ply 3 (the first ply beyond max_moves=2) sandwiches the king between (3,2) and (3,4)
+    # Ply 3 (the last allowed ply with max_moves=3) sandwiches the king between (3,2) and (3,4)
     attackers, defenders = Scripted([(3, 1, 3, 2), (1, 4, 3, 4)]), Scripted([(6, 5, 6, 4)])
     original_tafl = agent_module.Tafl
     agent_module.Tafl = lambda rules: set_position(original_tafl(rules), start, player=0)
     try:
-        game = play_game(attackers, defenders, SIMPLE_7X7, display=False, max_moves=2)
+        game = play_game(attackers, defenders, SIMPLE_7X7, display=False, max_moves=3)
     finally:
         agent_module.Tafl = original_tafl
     assert game.winner == 0 and game.end_reason == "king_captured", \
@@ -498,7 +498,7 @@ def test_self_play_targets():
             # are not stored), up to one ply before the end
             assert moves_left[-1] == 1 and np.all(np.diff(moves_left) == -1)
             assert len(record['board']) == 7 and record['type'] == 'selfplay'
-            assert record['ending'] != 'move_limit' or record['plies'] > max_game_length
+            assert record['ending'] != 'move_limit' or record['plies'] == max_game_length
     finally:
         torch.compile = original_compile
     print("  self-play: ending and moves-left targets, game record")
@@ -507,12 +507,14 @@ def test_self_play_targets():
 
 def test_mixed_search_sizes():
     """A full search has the full size and noise, and only its position is stored; a cheap one has
-    neither and is not stored. A forced win is exact and is stored too."""
+    neither and is not stored. A forced win is exact and is stored too. The value target is
+    discounted per ply to the end, across the plies that were not stored."""
     config = TrainingConfig()
     config.num_games_per_iteration, config.num_workers, config.temp_dir = 1, 1, None
     config.num_mcts_sims_attacker, config.num_mcts_sims_defender = 5, 7
     config.full_search_share, config.cheap_search_sims = 0.25, 3
     config.max_game_length, config.add_dirichlet_noise = 60, True
+    config.reward_discount, config.draw_penalty_attacker, config.draw_penalty_defender = 0.9, 0.5, -0.5
     config.network = NetworkConfig(channels=8, blocks=["res"])
     searches = []
     original_compile, original_search = torch.compile, MCTS.search
@@ -524,7 +526,9 @@ def test_mixed_search_sizes():
     torch.compile, MCTS.search = (lambda model, **kwargs: model), recording_search
     try:
         positions = generate_self_play_data(Agent(TaflNet(config.network, 7)), config)[0]
-        moves_left = positions[5]
+        values, winners, moves_left = positions[2], positions[3], positions[5]
+        undiscounted = np.where(winners == -1, 0.5, 1.0)  # |value| of a draw or a decided game
+        assert np.allclose(np.abs(values), undiscounted * 0.9 ** (moves_left - 1))
         assert len(searches) > 10 and {sims for sims, _, _ in searches} == {3, 5, 7}
         assert all(noise == (sims != 3) for sims, noise, _ in searches), "noise on full searches only"
         assert all(sims == 3 or sims == (5 if player == 0 else 7) for sims, _, player in searches)
@@ -717,7 +721,7 @@ def test_gui_reads_checkpoint_settings():
         if gui.game.game_over:
             break
         gui._do('ai')
-    assert gui.game.move_count == 4 and gui.game.winner is None, "move limit not applied"
+    assert gui.game.move_count == 3 and gui.game.winner is None, "move limit not applied"
     gui._draw_board()
     gui._draw_panel()
     print("  GUI: rule set and search settings from the checkpoint, moves, move limit")

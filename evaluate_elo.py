@@ -94,7 +94,7 @@ def play_single_game(agent1_is_attacker: bool, rules, network1_path: str, networ
         temperature: Sampling temperature for the first temperature_plies plies, then 0. Without it
                      both agents are deterministic and every game with the same colours is identical.
         temperature_plies: Number of opening plies played with temperature
-        max_moves: The game is a draw once more than this many plies have been played
+        max_moves: The game is a draw once this many plies have been played
 
     Returns:
         0 if agent1 wins, 1 if agent2 wins, 2 if draw
@@ -133,7 +133,7 @@ def play_single_game(agent1_is_attacker: bool, rules, network1_path: str, networ
         move_count += 1
 
         # Move limit (a win on the last allowed ply still counts as a win)
-        if move_count > max_moves and not game.game_over:
+        if move_count >= max_moves and not game.game_over:
             game._end(None, "move_limit")
             break
     
@@ -433,7 +433,7 @@ def main():
     parser.add_argument("--temperature-plies", type=int, default=10,
                        help="Number of opening plies played with --temperature (default: 10)")
     parser.add_argument("--max-moves", type=int, default=None,
-                       help="A game is a draw once more than this many plies have been played "
+                       help="A game is a draw once this many plies have been played "
                             "(default: the draw limit of the training run)")
 
     # System settings

@@ -31,7 +31,28 @@ from tafl_network import load_network, describe_network, count_parameters
 OUTPUT_NAMES = ['policy_logits', 'value', 'ending_logits', 'moves_left']
 
 
-def export_to_onnx(network, output_path, board_size, num_planes, opset_version=12):
+class OnnxNet:
+    """An exported network run by ONNX Runtime on one CPU thread, called like TaflNet.
+
+    For one position per call, as in the search, it is about 3 times faster than the compiled
+    PyTorch network, and it needs no compilation.
+    """
+
+    def __init__(self, path: str):
+        import onnxruntime
+        options = onnxruntime.SessionOptions()
+        options.intra_op_num_threads = options.inter_op_num_threads = 1
+        self.session = onnxruntime.InferenceSession(path, options, providers=['CPUExecutionProvider'])
+
+    def eval(self):
+        return self
+
+    def __call__(self, x: torch.Tensor) -> tuple:
+        """The outputs of OUTPUT_NAMES, as tensors."""
+        return tuple(torch.from_numpy(out) for out in self.session.run(None, {'board_state': x.numpy()}))
+
+
+def export_to_onnx(network, output_path, board_size, num_planes, opset_version=12, verbose=True):
     """
     Export the network; the batch axis is dynamic, the input is [batch, num_planes, N, N].
 
@@ -40,7 +61,8 @@ def export_to_onnx(network, output_path, board_size, num_planes, opset_version=1
     them to zero, which training does but WebAssembly in the browser cannot. Zeroing them changes
     the outputs by far less than float32 precision.
     """
-    print(f"\nExporting to ONNX format...")
+    if verbose:
+        print(f"\nExporting to ONNX format...")
     tiny = torch.finfo(torch.float32).tiny
     flushed = 0
     with torch.no_grad():
@@ -49,7 +71,8 @@ def export_to_onnx(network, output_path, board_size, num_planes, opset_version=1
                 subnormal = (tensor != 0) & (tensor.abs() < tiny)
                 flushed += int(subnormal.sum())
                 tensor[subnormal] = 0.0
-    print(f"  Subnormal weights set to 0: {flushed}")
+    if verbose:
+        print(f"  Subnormal weights set to 0: {flushed}")
     dummy_input = torch.randn(1, num_planes, board_size, board_size)
     torch.onnx.export(
         network,
@@ -64,8 +87,9 @@ def export_to_onnx(network, output_path, board_size, num_planes, opset_version=1
         dynamo=False,
         verbose=False
     )
-    print(f"  ✓ ONNX model saved to: {output_path}")
-    print(f"  File size: {os.path.getsize(output_path) / (1024 * 1024):.2f} MB")
+    if verbose:
+        print(f"  ✓ ONNX model saved to: {output_path}")
+        print(f"  File size: {os.path.getsize(output_path) / (1024 * 1024):.2f} MB")
 
 
 def write_model_info(network, checkpoint, onnx_path):

@@ -165,7 +165,7 @@ def play_game(agent1, agent2, rules, display: bool = True,
         temperature_mode: "fixed" (drop at threshold), "king" (drop when king leaves), or "decay" (linear)
         temperature_threshold: move number after which temperature drops to 0 (for "fixed" mode)
         temperature_decay_moves: number of moves for linear decay (for "decay" mode)
-        max_moves: the game is a draw once more than this many plies have been played
+        max_moves: the game is a draw once this many plies have been played
 
     Returns:
         the finished game: game.winner (0 attackers, 1 defenders, None draw), game.end_reason (one
@@ -232,9 +232,9 @@ def play_game(agent1, agent2, rules, display: bool = True,
             print("\n")
         
         # Move limit (a win on the last allowed ply still counts as a win)
-        if move_count > max_moves and not game.game_over:
+        if move_count >= max_moves and not game.game_over:
             if display:
-                print(f"Game exceeded {max_moves} moves - draw")
+                print(f"Game reached {max_moves} plies - draw")
             game._end(None, "move_limit")
             break
     

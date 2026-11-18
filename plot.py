@@ -19,7 +19,9 @@ Plots, saved next to the (first) input file:
   plot_epoch_gradients.png           Gradient norms per epoch
   plot_diversity.png                 Unique board states, game length and draw rate
   plot_endings.png                   Share of games ending in each way (king escaped, ...), in
-                                     self-play and in the new-vs-best evaluation
+                                     self-play and in the new-vs-best evaluation. With a games.jsonl
+                                     next to the input file, encirclements are split into proper
+                                     rings and lone-king pockets
   plot_ending_moves_left_losses.png  Losses of the ending and moves-left outputs per epoch
 
 Several files of the same kind, of runs that continue each other (a new run started with
@@ -46,9 +48,13 @@ import numpy as np
 # attacker win in most rule sets and a draw in some, so it gets its own neutral color.
 ENDING_COLORS = {
     'king_escaped': '#1f4e8c', 'exit_fort': '#4a86c8', 'attackers_blocked': '#9cc3ea',
-    'king_captured': '#a32020', 'encircled': '#d9534f', 'defenders_blocked': '#f2a39a',
+    'king_captured': '#a32020', 'encircled': '#d9534f', 'encircled_ring': '#c96a2a',
+    'encircled_pocket': '#eb8a6a', 'defenders_blocked': '#f2a39a',
     'repetition': '#7a6a9a', 'move_limit': '#b5b5b5',
 }
+# Legend names of the encirclement split by pocket_shares (other endings show their own name)
+ENDING_LABELS = {'encircled': 'encircled (not split)', 'encircled_ring': 'encircled: proper ring',
+                 'encircled_pocket': 'encircled: lone-king pocket'}
 
 # The columns of the per-epoch table in output.txt, by number of columns (newer and older format)
 EPOCH_COLUMNS = {
@@ -449,17 +455,60 @@ def plot_diversity(history: dict, output_dir: str):
     plt.close()
 
 
-def plot_endings(history: dict, output_dir: str):
+def pocket_shares(filepaths: list) -> dict:
+    """
+    The share of lone-king pockets among the encirclements, by ('selfplay' or 'vs_best',
+    iteration), from the games.jsonl next to each input file. As in analysis/tactics_scan.py, a ring
+    around at most 2 defenders besides the king is a pocket, a larger one a proper ring.
+    """
+    counts = {}  # (game type, iteration) -> [pockets, encirclements]
+    for filepath in filepaths:
+        path = os.path.join(os.path.dirname(filepath) or '.', 'games.jsonl')
+        if not os.path.exists(path):
+            continue
+        with open(path) as f:
+            for line in f:
+                if '"encircled"' not in line:  # skip parsing the other games
+                    continue
+                game = json.loads(line)
+                count = counts.setdefault((game['type'], game['iteration']), [0, 0])
+                count[0] += sum(row.count('D') for row in game['board']) <= 2
+                count[1] += 1
+    return {key: pockets / total for key, (pockets, total) in counts.items()}
+
+
+def plot_endings(history: dict, output_dir: str, pockets: dict):
     """Share of games that ended in each way, stacked, for self-play and for the new-vs-best
-    evaluation (the games of the new network as attackers and as defenders added together)."""
+    evaluation (the games of the new network as attackers and as defenders added together).
+    `pockets` is pocket_shares(): where it knows an iteration, its encirclements are split into
+    proper rings and pockets (by share, since a games.jsonl may hold a resumed iteration twice)."""
+
+    def split_rings(endings: dict, share) -> dict:
+        if 'encircled' not in endings or (share is None and endings['encircled'] > 0):
+            return endings
+        share = share or 0.0  # no encirclements at all: both parts are 0
+        split = {}
+        for name, number in endings.items():
+            if name == 'encircled':
+                split['encircled_ring'] = number - round(number * share)
+                split['encircled_pocket'] = round(number * share)
+            else:
+                split[name] = number
+        return split
+
     # (iteration, {ending: number of games}) for each iteration with a table
-    selfplay = [(iteration, endings) for iteration, endings
-                in zip(history['iterations'], history['selfplay_results']['endings']) if endings]
-    evaluation = [(iteration, Counter(result['attackers']['endings']) + Counter(result['defenders']['endings']))
+    selfplay_tables = zip(history['iterations'], history['selfplay_results']['endings'])
+    selfplay = [(iteration, split_rings(endings, pockets.get(('selfplay', iteration))))
+                for iteration, endings in selfplay_tables if endings]
+    evaluation = [(iteration, split_rings(Counter(result['attackers']['endings'])
+                                          + Counter(result['defenders']['endings']),
+                                          pockets.get(('vs_best', iteration))))
                   for iteration, result in zip(history['eval_iterations'], history['eval_results'])
                   if result and 'endings' in result.get('attackers', {}) and 'endings' in result.get('defenders', {})]
-    # All endings that occur, in the order of the tables
+    # All endings that occur, in the order of ENDING_COLORS (unknown ones last)
     names = list(dict.fromkeys(name for _, endings in selfplay + evaluation for name in endings))
+    order = list(ENDING_COLORS)
+    names.sort(key=lambda name: order.index(name) if name in order else len(order))
     colors = [ENDING_COLORS.get(name, 'black') for name in names]
 
     fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=True)
@@ -479,10 +528,11 @@ def plot_endings(history: dict, output_dir: str):
 
     # One legend for both panels, listed top to bottom in the same order as the stacked areas
     handles = [plt.Rectangle((0, 0), 1, 1, color=color) for color in colors]
-    fig.legend(handles[::-1], names[::-1], loc='center right', fontsize=10,
+    labels = [ENDING_LABELS.get(name, name) for name in names]
+    fig.legend(handles[::-1], labels[::-1], loc='center right', fontsize=10,
                title='Blue: defenders win\nRed: attackers win', title_fontsize=9)
 
-    plt.tight_layout(rect=[0, 0, 0.86, 1])
+    plt.tight_layout(rect=[0, 0, 0.83, 1])
     plt.savefig(os.path.join(output_dir, 'plot_endings.png'), dpi=150)
     plt.close()
 
@@ -579,7 +629,7 @@ def main():
         plot_ending_moves_left_losses(epochs, output_dir)
         print("  ✓ Saved plot_ending_moves_left_losses.png")
     if any(history['selfplay_results']['endings']) or any(history['eval_results']):
-        plot_endings(history, output_dir)
+        plot_endings(history, output_dir, pocket_shares(filepaths))
         print("  ✓ Saved plot_endings.png")
 
     print(f"\nAll plots saved to {output_dir}/")

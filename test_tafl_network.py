@@ -14,7 +14,7 @@ import torch
 
 from dataclasses import replace
 
-from convert_to_onnx import OUTPUT_NAMES, export_to_onnx
+from convert_to_onnx import OUTPUT_NAMES, OnnxNet, export_to_onnx
 from features import (FeatureSpec, build_features, constant_planes, defender_region_plane, king_region_plane,
                       reach_planes, repetition_plane)
 from network_config import NetworkConfig
@@ -234,7 +234,7 @@ ARCHITECTURES = [
 def test_architectures_forward_and_onnx():
     """Every block kind, head and feature option must build, train (batch forward/backward), run at
     batch 1 in eval mode, export to ONNX (opset 12, as convert_to_onnx.py) and give the same outputs
-    in onnxruntime."""
+    in onnxruntime (through OnnxNet, as the self-play and evaluation workers run it)."""
     try:
         import onnxruntime as ort
     except ImportError:
@@ -263,12 +263,10 @@ def test_architectures_forward_and_onnx():
                 path = os.path.join(tmp, "net.onnx")
                 export_to_onnx(network, path, n, planes)
                 if ort is not None:
-                    session = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
-                    onnx_outputs = session.run(OUTPUT_NAMES, {"board_state": x[:2].numpy()})
                     with torch.no_grad():
-                        torch_outputs = network(x[:2])
+                        onnx_outputs, torch_outputs = OnnxNet(path)(x[:2]), network(x[:2])
                     for name, onnx_out, torch_out in zip(OUTPUT_NAMES, onnx_outputs, torch_outputs):
-                        assert np.allclose(onnx_out, torch_out.numpy(), atol=1e-4, rtol=1e-4), \
+                        assert np.allclose(onnx_out.numpy(), torch_out.numpy(), atol=1e-4, rtol=1e-4), \
                             f"ONNX output {name} differs"
     print("  all block kinds, heads and features: forward, backward, batch-1 eval, ONNX export match")
     return True
@@ -312,8 +310,8 @@ def test_run_configs():
     """All shipped configs must load, round-trip through their JSON form, accept overrides and
     reject unknown keys. Each lives in configs/<rule set>/, plays that named rule set and writes to
     checkpoints/<rule set>/<run>. Within a rule set the experiments may differ from the baseline
-    only in the network (so a comparison measures the network), and the search must discount like
-    the value targets."""
+    only in the network and the number of iterations (so a comparison measures the network), and
+    the search must discount like the value targets."""
     found = 0
     for ruleset in sorted(os.listdir(CONFIG_DIR)):
         assert ruleset in RULESETS, f"configs/{ruleset} is not a rule set"
@@ -334,9 +332,11 @@ def test_run_configs():
             if name.startswith("v2_"):  # the second training recipe: it shares only the rule set
                 continue
             assert config.search_discount == config.reward_discount, f"{name}: discounts differ"
+            # The run length is free to differ
+            data["self_play"]["num_iterations"] = baseline_data["self_play"]["num_iterations"]
             for section in ("game", "self_play", "training", "replay_buffer", "evaluation"):
                 assert data[section] == baseline_data[section], f"{ruleset}/{name}: {section} differs"
-    assert found == 27
+    assert found == 29
     baseline = load_config(os.path.join(CONFIG_DIR, "brandubh_2", "baseline.json"))
     assert (baseline.num_mcts_sims_attacker, baseline.batch_size, baseline.network.value_hidden,
             baseline.network.squeeze_excitation, baseline.rules.throne) == (1000, 256, 256, True, True)

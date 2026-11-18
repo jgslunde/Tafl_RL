@@ -23,4 +23,4 @@ cd "$(dirname "$0")"
 run_dir=checkpoints/$ruleset/$name
 mkdir -p $run_dir
 OMP_NUM_THREADS=$TRAIN_THREADS MKL_NUM_THREADS=$TRAIN_THREADS exec .venv/bin/python -u run_training.py \
-    configs/$ruleset/$name.json --num-workers 48 --log $run_dir/output.txt "$@"
+    configs/$ruleset/$name.json --num-workers 64 --log $run_dir/output.txt "$@"

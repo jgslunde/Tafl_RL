@@ -96,7 +96,7 @@ class TaflGUI:
         the checkpoint's training config, else from the MCTS defaults:
         - ruleset: the rules the checkpoint was trained with, else Brandubh 2
         - simulations, c_puct, fpu_reduction: those of the checkpoint's evaluation (gating) games
-        - max_moves: the training move limit (a draw once more than this many plies are played)
+        - max_moves: the training move limit (a draw once this many plies are played)
         The search always uses the checkpoint's search_discount and input planes, and Dirichlet
         noise (if enabled) its dirichlet_alpha and dirichlet_epsilon.
         """
@@ -255,8 +255,8 @@ class TaflGUI:
                 self.captured.append((int(r), int(c), int(old_board[r, c]), 0.0))
         self.last_move, self.highlight_timer = move, 60
         self.king_left_throne = self.king_left_throne or self.game.board[self.game.throne] != KING
-        # As in training: a draw once more than max_moves plies are played (a win on that ply wins)
-        if (self.max_moves is not None and self.game.move_count > self.max_moves
+        # As in training: a draw once max_moves plies are played (a win on the last ply still wins)
+        if (self.max_moves is not None and self.game.move_count >= self.max_moves
                 and not self.game.game_over):
             self.game._end(None, "move_limit")
         self._evaluate_position()
@@ -548,7 +548,7 @@ def main():
     parser.add_argument("--temperature-decay-moves", type=int, default=30,
                         help="Plies of the decay in 'decay' mode (default: 30)")
     parser.add_argument("--max-moves", type=int,
-                        help="Draw once more than this many plies are played "
+                        help="Draw once this many plies are played "
                              "(default: the checkpoint's max_game_length, else no limit)")
     args = parser.parse_args()
 
